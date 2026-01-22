@@ -1,0 +1,27 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Output files
+output/
+
+# Whisper model cache
+.cache/
+
+# Test audio files (optional)
+*.mp3
+*.wav
+*.m4a
+*.aac
+!test_*.mp3
+!test_*.wav
+
+.claude/
+**/.mcp.json
