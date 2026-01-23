@@ -145,7 +145,6 @@ class AudioSplitter:
 
         output_data = {
             "source_file": str(self.audio_path),
-            "total_segments": len(metadata),
             "segments": metadata,
         }
 

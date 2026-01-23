@@ -132,7 +132,6 @@ python main.py input_file [options]
 ```json
 {
   "source_file": "input.mp3",
-  "total_segments": 3,
   "segments": [
     {
       "index": 1,

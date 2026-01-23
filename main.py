@@ -203,7 +203,7 @@ def process_from_json(json_file: Path, args) -> int:
     data = load_transcript_json(str(json_file))
     source_audio = Path(data["source_file"])
 
-    print(f"[OK] Loaded {data['total_segments']} segments")
+    print(f"[OK] Loaded {len(data['segments'])} segments")
     print(f"[OK] Source audio: {source_audio}")
 
     # Verify source audio exists
