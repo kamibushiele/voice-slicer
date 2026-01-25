@@ -354,9 +354,6 @@ def regenerate_audio():
         if unexported_path.exists():
             unexported_path.unlink()
 
-        # キューシート生成
-        splitter.save_cuesheet(save_data['segments'], 'csv')
-
         # 結果メッセージを生成
         messages = []
         if exported_files:

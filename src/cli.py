@@ -79,13 +79,6 @@ def parse_args():
     )
 
     parser.add_argument(
-        "--cue-format",
-        type=str,
-        default="csv",
-        help="Cue sheet output format: csv, tsv, srt, vtt, or all (default: csv)"
-    )
-
-    parser.add_argument(
         "--transcribe-only",
         action="store_true",
         help="Only transcribe audio and generate JSON (no audio splitting)"

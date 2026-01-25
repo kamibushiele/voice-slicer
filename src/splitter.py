@@ -6,7 +6,6 @@ from tqdm import tqdm
 import json
 
 from .utils import sanitize_filename
-from .cuesheet import generate_cuesheet
 
 
 class AudioSplitter:
@@ -152,33 +151,6 @@ class AudioSplitter:
             json.dump(output_data, f, ensure_ascii=False, indent=2)
 
         print(f"\nMetadata saved to: {metadata_path}")
-
-    def save_cuesheet(self, metadata: List[Dict[str, Any]], formats: str) -> List[Path]:
-        """
-        Save cue sheet(s) in specified format(s).
-
-        Args:
-            metadata: List of segment metadata dictionaries
-            formats: Format string (csv, tsv, srt, vtt, or all)
-
-        Returns:
-            List of generated cue sheet file paths
-        """
-        # Parse format string
-        if formats.lower() == 'all':
-            format_list = ['csv', 'tsv', 'srt', 'vtt']
-        else:
-            format_list = [fmt.strip().lower() for fmt in formats.split(',')]
-
-        # Generate cue sheets
-        generated_files = generate_cuesheet(metadata, self.output_dir, format_list)
-
-        # Print summary
-        print(f"\nCue sheet(s) saved:")
-        for file_path in generated_files:
-            print(f"  - {file_path.name}")
-
-        return generated_files
 
     def export_segment(self, segment: Dict[str, Any]) -> str:
         """

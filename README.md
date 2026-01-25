@@ -51,8 +51,7 @@ uv run python run_gui.py input_generated/
 input_generated/
 ├── 001_こんにちは世界.mp3
 ├── 002_今日はいい天気ですね.mp3
-├── transcript.json
-└── cuesheet.csv
+└── transcript.json
 ```
 
 ## 開発者向け情報

@@ -1,6 +1,8 @@
 # CLAUDE.md
 
-Claude Code向けの開発ガイドです。利用方法は[README.md](README.md)を参照してください。
+Claude Code向けの開発ガイドです。
+serenaMCPを活用して効率的に開発を補助してください。
+ソフトウェアの利用方法は[README.md](README.md)を参照してください。
 
 ## Project Overview
 
@@ -30,7 +32,6 @@ main.py                    # 3つの処理モードのオーケストレーシ�
 ├── src/transcribe.py     # Whisper統合、GPU/CPU検出、句読点分割
 ├── src/splitter.py       # pydubによる音声切り出し、メタデータ生成
 ├── src/json_loader.py    # transcript.jsonの読込・検証
-├── src/cuesheet.py       # マルチフォーマット出力（CSV/TSV/SRT/VTT）
 └── src/utils.py          # ファイル名サニタイズ、タイムスタンプ整形、文分割ユーティリティ
 ```
 
@@ -56,7 +57,6 @@ Segments: [{start, end, text}, ...]
 Output:
     • 001_first_line.mp3, 002_second_line.mp3, ...
     • transcript.json
-    • cuesheet.csv/tsv/srt/vtt
 ```
 
 ## Key Design Decisions
@@ -101,7 +101,6 @@ python main.py input_file [options]
 | `--max-filename-length` | ファイル名最大長 | 制限なし |
 | `--margin-before` | 開始前マージン（秒） | 0.1 |
 | `--margin-after` | 終了後マージン（秒） | 0.2 |
-| `--cue-format` | Cueシート形式（csv/tsv/srt/vtt/all） | csv |
 | `--transcribe-only` | 文字起こしのみ（分割なし） | - |
 | `--from-json` | JSONから分割（明示指定） | - |
 | `--device` | デバイス（cuda/cpu） | 自動検出 |
@@ -115,16 +114,14 @@ python main.py input_file [options]
 4. 句読点で文分割、タイムスタンプ再計算
 5. 音声切り出し・保存
 6. transcript.json保存
-7. Cueシート出力
 
 ### Transcribe-Only Mode
-1-4は同じ、5-7をスキップしてJSON保存のみ
+1-4は同じ、5-6をスキップしてJSON保存のみ
 
 ### JSON Mode
 1. JSON読込・検証
 2. 元音声ファイル検証
 3. 音声切り出し・保存（JSONのテキストをそのまま使用、再分割なし）
-4. Cueシート出力
 
 ## File Formats
 
@@ -144,11 +141,6 @@ python main.py input_file [options]
 }
 ```
 
-### Cue Sheet Formats
-- **CSV/TSV**: `Index,Start,End,Duration,Text,Filename`
-- **SRT**: `00:00:00,000 --> 00:00:03,580` 形式
-- **VTT**: `00:00:00.000 --> 00:00:03.580` 形式
-
 ## Code Editing Guidelines
 
 ### src/transcribe.py
@@ -166,11 +158,6 @@ python main.py input_file [options]
   - `rename_file()`: ファイルリネーム
   - `delete_file()`: ファイル削除
   - `generate_filename()`: ファイル名生成（書き出しなし）
-
-### src/cuesheet.py
-- 既存フォーマットジェネレータパターンに従う
-- タイムスタンプをフォーマット固有記法に変換
-- 新フォーマット追加時はCLI引数も更新
 
 ### main.py
 - 3モードの明確な分離を維持
@@ -214,7 +201,6 @@ torchaudio = { index = "pytorch-cu124" }
 2. 3モード全て（normal, transcribe-only, from-json）をテスト
 3. `--device`フラグでGPU/CPU切り替えテスト
 4. エッジケース：短い音声、無音、BGMのみ
-5. Cueシートを対象アプリ（動画編集ソフト等）で検証
 
 ## GUI Editor
 

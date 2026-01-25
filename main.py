@@ -96,21 +96,13 @@ def process_normal(input_file: Path, args) -> int:
     metadata = splitter.split_and_save(segments)
     splitter.save_metadata(metadata)
 
-    # Step 3: Generate cue sheet
-    print("\n" + "=" * 60)
-    print("Step 3: Generating cue sheet")
-    print("=" * 60)
-
-    cuesheet_files = splitter.save_cuesheet(metadata, args.cue_format)
-
-    # Step 4: Summary
+    # Step 3: Summary
     print("\n" + "=" * 60)
     print("Processing Complete!")
     print("=" * 60)
     print(f"[OK] Total segments: {len(metadata)}")
     print(f"[OK] Output directory: {Path(output_dir).absolute()}")
     print(f"[OK] Metadata file: transcript.json")
-    print(f"[OK] Cue sheet(s): {len(cuesheet_files)} file(s) generated")
 
     # Show sample outputs
     print("\nSample output files:")
@@ -230,20 +222,12 @@ def process_from_json(json_file: Path, args) -> int:
     metadata = splitter.split_and_save(segments)
     splitter.save_metadata(metadata)
 
-    # Step 3: Generate cue sheet
-    print("\n" + "=" * 60)
-    print("Step 3: Generating cue sheet")
-    print("=" * 60)
-
-    cuesheet_files = splitter.save_cuesheet(metadata, args.cue_format)
-
-    # Step 4: Summary
+    # Step 3: Summary
     print("\n" + "=" * 60)
     print("Processing Complete!")
     print("=" * 60)
     print(f"[OK] Total segments: {len(metadata)}")
     print(f"[OK] Output directory: {Path(output_dir).absolute()}")
-    print(f"[OK] Cue sheet(s): {len(cuesheet_files)} file(s) generated")
 
     # Show sample outputs
     print("\nSample output files:")

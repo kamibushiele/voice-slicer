@@ -20,7 +20,6 @@ uv run python main.py input.mp3
 | `--max-filename-length` | ファイル名最大長 | 制限なし |
 | `--margin-before` | セグメント開始前マージン（秒） | 0.1 |
 | `--margin-after` | セグメント終了後マージン（秒） | 0.2 |
-| `--cue-format` | Cueシート形式（csv/tsv/srt/vtt/all） | csv |
 | `--transcribe-only` | 文字起こしのみ（音声分割なし） | - |
 | `--from-json` | JSONから分割（通常は拡張子で自動判定） | - |
 | `--device` | デバイス（cuda/cpu） | 自動検出 |
@@ -64,9 +63,7 @@ uv run python main.py input_generated/transcript.json
 input_generated/
 ├── 001_こんにちは世界.mp3
 ├── 002_今日はいい天気ですね.mp3
-├── transcript.json      # メタデータ（編集可能）
-├── cuesheet.csv         # Cueシート
-└── cuesheet.srt         # 字幕ファイル（--cue-format allの場合）
+└── transcript.json      # メタデータ（編集可能）
 ```
 
 ## トラブルシューティング
