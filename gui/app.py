@@ -124,7 +124,7 @@ def get_data():
 def save_json():
     """JSONファイルを保存する（_unexported.jsonとして保存）"""
     try:
-        from src.utils import generate_segment_filename
+        from src.utils import calculate_index_digits
 
         data = request.json
 
@@ -137,32 +137,35 @@ def save_json():
 
         # _unexported.jsonとして保存
         json_path = Path(json_path)
-        unexported_path = json_path.parent / f"{json_path.stem}_unexported.json"
+        unexported_path = json_path.parent / 'transcript_unexported.json'
 
-        # 音声ファイルの拡張子を取得
         source_file = data.get('source_file', '')
-        extension = Path(source_file).suffix if source_file else '.mp3'
+
+        # index_digitsを取得または計算
+        index_digits = data.get('index_digits')
+        if index_digits is None:
+            index_digits = calculate_index_digits(len(data.get('segments', [])))
 
         # 保存用のデータを整形
         save_data = {
             'source_file': source_file,
+            'index_digits': index_digits,
             'segments': []
         }
 
-        # セグメントを整形（ファイル名を自動再生成）
-        for i, segment in enumerate(data.get('segments', [])):
-            # ファイル名をテキストから自動生成
-            index = segment.get('index', i + 1)
-            text = segment.get('text', '')
-            filename = generate_segment_filename(index, text, extension)
-
+        # セグメントを整形（index/filenameは書き出し前は未設定のまま保持）
+        for segment in data.get('segments', []):
             cleaned_segment = {
-                'index': index,
-                'filename': filename,
                 'start': segment.get('start', 0),
                 'end': segment.get('end', 0),
-                'text': text,
+                'text': segment.get('text', ''),
             }
+
+            # 既に確定済みのindex/filenameがあれば保持
+            if segment.get('index') is not None and segment.get('filename'):
+                cleaned_segment['index'] = segment['index']
+                cleaned_segment['index_sub'] = segment.get('index_sub')
+                cleaned_segment['filename'] = segment['filename']
 
             save_data['segments'].append(cleaned_segment)
 
@@ -246,6 +249,7 @@ def regenerate_audio():
     """差分ベースで音声を書き出す（変更/削除/リネームに対応）"""
     try:
         from src.splitter import AudioSplitter
+        from src.utils import calculate_index_digits
 
         data = request.json
 
@@ -264,17 +268,22 @@ def regenerate_audio():
         json_path = Path(json_path)
         output_dir = json_path.parent
 
+        # index_digitsを取得または計算
+        index_digits = data.get('index_digits')
+        if index_digits is None:
+            index_digits = calculate_index_digits(len(current_segments))
+
         # 前回書き出し済みのtranscript.jsonを読み込み
         exported_json_path = output_dir / 'transcript.json'
-        previous_segments = {}
+        previous_segments = []
+        previous_by_filename = {}
         if exported_json_path.exists() and not force_export:
             with open(exported_json_path, 'r', encoding='utf-8') as f:
                 prev_data = json.load(f)
-                for seg in prev_data.get('segments', []):
-                    previous_segments[seg['index']] = seg
-
-        # 現在のセグメントをindex→segのマップに変換
-        current_by_index = {seg['index']: seg for seg in current_segments}
+                previous_segments = prev_data.get('segments', [])
+                for seg in previous_segments:
+                    if seg.get('filename'):
+                        previous_by_filename[seg['filename']] = seg
 
         # AudioSplitterを初期化
         splitter = AudioSplitter(
@@ -284,65 +293,105 @@ def regenerate_audio():
             margin_after=0.2
         )
 
+        # 未確定セグメント（indexがないもの）にindexを割り当て
+        segments_with_index = splitter.assign_indices(
+            current_segments,
+            existing_segments=previous_segments if not force_export else None
+        )
+
         # 差分を計算
         deleted_files = []
         renamed_files = []
         exported_files = []
 
-        # 1. 削除されたセグメント（前回にあって今回にない）
-        for idx, prev_seg in previous_segments.items():
-            if idx not in current_by_index:
-                if splitter.delete_file(prev_seg['filename']):
-                    deleted_files.append(prev_seg['filename'])
+        # 現在のセグメントのファイル名を収集
+        current_filenames = set()
+        for seg in segments_with_index:
+            if seg.get('filename'):
+                current_filenames.add(seg['filename'])
+
+        # 1. 削除されたセグメント（前回にあって今回にないファイル名）
+        for prev_seg in previous_segments:
+            prev_filename = prev_seg.get('filename')
+            if prev_filename and prev_filename not in current_filenames:
+                # このセグメントに対応する新しいセグメントがあるか確認
+                # (同じstart/end/textを持つセグメントがあればそれは更新とみなす)
+                found_update = False
+                for seg in segments_with_index:
+                    if (abs(seg['start'] - prev_seg['start']) < 0.001 and
+                        abs(seg['end'] - prev_seg['end']) < 0.001):
+                        found_update = True
+                        break
+                if not found_update:
+                    if splitter.delete_file(prev_filename):
+                        deleted_files.append(prev_filename)
 
         # 2. 各セグメントの処理
-        for seg in current_segments:
-            idx = seg['index']
-            new_filename = splitter.generate_filename(seg)
+        for seg in segments_with_index:
+            new_filename = splitter.generate_filename(seg, index_digits=index_digits)
 
-            if idx in previous_segments and not force_export:
-                prev_seg = previous_segments[idx]
-                old_filename = prev_seg['filename']
+            # 既存のファイル名を持つセグメントを検索
+            old_seg = None
+            if seg.get('filename') and seg['filename'] in previous_by_filename:
+                old_seg = previous_by_filename[seg['filename']]
+            else:
+                # ファイル名がない場合、同じstart/endを持つセグメントを検索
+                for prev_seg in previous_segments:
+                    if (abs(seg['start'] - prev_seg['start']) < 0.001 and
+                        abs(seg['end'] - prev_seg['end']) < 0.001):
+                        old_seg = prev_seg
+                        break
+
+            if old_seg and not force_export:
+                old_filename = old_seg.get('filename')
 
                 # start/endが変更されたか確認
                 time_changed = (
-                    abs(seg['start'] - prev_seg['start']) > 0.001 or
-                    abs(seg['end'] - prev_seg['end']) > 0.001
+                    abs(seg['start'] - old_seg['start']) > 0.001 or
+                    abs(seg['end'] - old_seg['end']) > 0.001
                 )
 
                 if time_changed:
                     # 時刻変更 → 古いファイル削除 + 再書き出し
-                    if old_filename != new_filename:
+                    if old_filename and old_filename != new_filename:
                         splitter.delete_file(old_filename)
-                    filename = splitter.export_segment(seg)
+                    filename = splitter.export_segment(seg, index_digits=index_digits)
                     exported_files.append(filename)
                     seg['filename'] = filename
                 elif old_filename != new_filename:
-                    # テキストのみ変更 → リネーム
-                    if splitter.rename_file(old_filename, new_filename):
+                    # テキストのみ変更またはindex変更 → リネーム
+                    if old_filename and splitter.rename_file(old_filename, new_filename):
                         renamed_files.append({'old': old_filename, 'new': new_filename})
-                    seg['filename'] = new_filename
+                    elif not old_filename:
+                        # 古いファイルがない場合は新規書き出し
+                        filename = splitter.export_segment(seg, index_digits=index_digits)
+                        exported_files.append(filename)
+                        seg['filename'] = filename
+                    else:
+                        seg['filename'] = new_filename
                 else:
                     # 変更なし
                     seg['filename'] = old_filename
             else:
                 # 新規セグメントまたは強制書き出し → 書き出し
-                filename = splitter.export_segment(seg)
+                filename = splitter.export_segment(seg, index_digits=index_digits)
                 exported_files.append(filename)
                 seg['filename'] = filename
 
         # transcript.jsonを更新
         save_data = {
             'source_file': data.get('source_file', ''),
+            'index_digits': index_digits,
             'segments': [
                 {
                     'index': seg['index'],
+                    'index_sub': seg.get('index_sub'),
                     'filename': seg['filename'],
                     'start': seg['start'],
                     'end': seg['end'],
                     'text': seg['text'],
                 }
-                for seg in current_segments
+                for seg in segments_with_index
             ]
         }
 
@@ -350,7 +399,7 @@ def regenerate_audio():
             json.dump(save_data, f, ensure_ascii=False, indent=2)
 
         # _unexported.jsonを削除
-        unexported_path = output_dir / f"{json_path.stem}_unexported.json"
+        unexported_path = output_dir / 'transcript_unexported.json'
         if unexported_path.exists():
             unexported_path.unlink()
 

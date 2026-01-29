@@ -5,7 +5,11 @@ from pydub import AudioSegment
 from tqdm import tqdm
 import json
 
-from .utils import sanitize_filename
+from .utils import (
+    format_index_filename,
+    determine_index,
+    calculate_index_digits,
+)
 
 
 class AudioSplitter:
@@ -42,16 +46,26 @@ class AudioSplitter:
         self.audio = AudioSegment.from_file(str(self.audio_path))
         self.audio_duration = len(self.audio)  # in milliseconds  # in milliseconds
 
-    def split_and_save(self, segments: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def split_and_save(
+        self,
+        segments: List[Dict[str, Any]],
+        index_digits: int = None
+    ) -> List[Dict[str, Any]]:
         """
         Split audio into segments and save as separate files.
+        Assigns sequential indices (1, 2, 3, ...) to all segments.
 
         Args:
             segments: List of segment dictionaries with start, end, text
+            index_digits: Number of digits for index (calculated from segment count if None)
 
         Returns:
             List of output file metadata
         """
+        # Calculate index_digits if not provided
+        if index_digits is None:
+            index_digits = calculate_index_digits(len(segments))
+
         output_metadata = []
         file_extension = self.audio_path.suffix
 
@@ -73,10 +87,16 @@ class AudioSplitter:
             # Extract audio segment
             audio_segment = self.audio[start_ms:end_ms]
 
-            # Generate filename
-            file_number = f"{i+1:03d}"
-            text_part = sanitize_filename(segment["text"], self.max_filename_length)
-            filename = f"{file_number}_{text_part}{file_extension}"
+            # Generate filename with sequential index
+            index = i + 1
+            filename = format_index_filename(
+                index=index,
+                index_sub=None,
+                text=segment["text"],
+                extension=file_extension,
+                index_digits=index_digits,
+                max_text_length=self.max_filename_length,
+            )
             output_path = self.output_dir / filename
 
             # Save audio segment
@@ -87,7 +107,7 @@ class AudioSplitter:
 
             # Store metadata
             metadata = {
-                "index": i + 1,
+                "index": index,
                 "filename": filename,
                 "start": segment["start"],
                 "end": segment["end"],
@@ -100,26 +120,19 @@ class AudioSplitter:
     def generate_metadata_only(self, segments: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         Generate metadata without splitting audio (for transcribe-only mode).
+        index, index_sub, filename are not set (will be determined at export time).
 
         Args:
             segments: List of segment dictionaries with start, end, text
 
         Returns:
-            List of output file metadata
+            List of output file metadata (without index/filename)
         """
         output_metadata = []
-        file_extension = self.audio_path.suffix
 
-        for i, segment in enumerate(segments):
-            # Generate filename
-            file_number = f"{i+1:03d}"
-            text_part = sanitize_filename(segment["text"], self.max_filename_length)
-            filename = f"{file_number}_{text_part}{file_extension}"
-
-            # Store metadata
+        for segment in segments:
+            # Store metadata without index/filename (determined at export time)
             metadata = {
-                "index": i + 1,
-                "filename": filename,
                 "start": segment["start"],
                 "end": segment["end"],
                 "text": segment["text"],
@@ -128,33 +141,45 @@ class AudioSplitter:
 
         return output_metadata
 
-    def save_metadata(self, metadata: List[Dict[str, Any]], unexported: bool = False) -> None:
+    def save_metadata(
+        self,
+        metadata: List[Dict[str, Any]],
+        unexported: bool = False,
+        index_digits: int = None
+    ) -> None:
         """
         Save transcription metadata to JSON file.
 
         Args:
             metadata: List of segment metadata dictionaries
             unexported: If True, save as transcript_unexported.json (for transcribe-only mode)
+            index_digits: Number of digits for index (calculated from segment count if None)
         """
         if unexported:
             metadata_path = self.output_dir / "transcript_unexported.json"
         else:
             metadata_path = self.output_dir / "transcript.json"
 
+        # Calculate index_digits if not provided
+        if index_digits is None:
+            index_digits = calculate_index_digits(len(metadata))
+
         output_data = {
             "source_file": str(self.audio_path),
+            "index_digits": index_digits,
             "segments": metadata,
         }
 
         with open(metadata_path, 'w', encoding='utf-8') as f:
             json.dump(output_data, f, ensure_ascii=False, indent=2)
 
-    def export_segment(self, segment: Dict[str, Any]) -> str:
+    def export_segment(self, segment: Dict[str, Any], index_digits: int = 3) -> str:
         """
         Export a single segment and return its filename.
 
         Args:
-            segment: Segment dictionary with index, start, end, text
+            segment: Segment dictionary with index, index_sub, start, end, text
+            index_digits: Number of digits for index formatting
 
         Returns:
             Generated filename
@@ -168,8 +193,6 @@ class AudioSplitter:
         }
         export_format = format_map.get(file_extension.lower(), file_extension.lstrip('.'))
 
-        index = segment["index"]
-
         # Calculate start and end times in milliseconds
         start_ms = max(0, segment["start"] * 1000 - self.margin_before)
         end_ms = min(self.audio_duration, segment["end"] * 1000 + self.margin_after)
@@ -177,10 +200,15 @@ class AudioSplitter:
         # Extract audio segment
         audio_segment = self.audio[start_ms:end_ms]
 
-        # Generate filename using original index
-        file_number = f"{index:03d}"
-        text_part = sanitize_filename(segment["text"], self.max_filename_length)
-        filename = f"{file_number}_{text_part}{file_extension}"
+        # Generate filename using index and index_sub
+        filename = format_index_filename(
+            index=segment["index"],
+            index_sub=segment.get("index_sub"),
+            text=segment["text"],
+            extension=file_extension,
+            index_digits=index_digits,
+            max_text_length=self.max_filename_length,
+        )
         output_path = self.output_dir / filename
 
         # Save audio segment
@@ -226,17 +254,97 @@ class AudioSplitter:
             return True
         return False
 
-    def generate_filename(self, segment: Dict[str, Any]) -> str:
+    def generate_filename(self, segment: Dict[str, Any], index_digits: int = 3) -> str:
         """
         Generate filename for a segment without exporting.
 
         Args:
-            segment: Segment dictionary with index, text
+            segment: Segment dictionary with index, index_sub, text
+            index_digits: Number of digits for index formatting
 
         Returns:
             Generated filename
         """
         file_extension = self.audio_path.suffix
-        file_number = f"{segment['index']:03d}"
-        text_part = sanitize_filename(segment["text"], self.max_filename_length)
-        return f"{file_number}_{text_part}{file_extension}"
+        return format_index_filename(
+            index=segment["index"],
+            index_sub=segment.get("index_sub"),
+            text=segment["text"],
+            extension=file_extension,
+            index_digits=index_digits,
+            max_text_length=self.max_filename_length,
+        )
+
+    def assign_indices(
+        self,
+        segments: List[Dict[str, Any]],
+        existing_segments: List[Dict[str, Any]] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Assign index and index_sub to segments that don't have them.
+        Segments are sorted by start time before assignment.
+
+        Args:
+            segments: List of segment dictionaries (may or may not have index)
+            existing_segments: List of existing segments with confirmed indices
+
+        Returns:
+            List of segments with index and index_sub assigned
+        """
+        # Sort segments by start time
+        sorted_segments = sorted(segments, key=lambda s: s["start"])
+
+        # Build list of confirmed indices from existing segments
+        confirmed = []
+        if existing_segments:
+            for seg in existing_segments:
+                if seg.get("index") is not None and seg.get("filename"):
+                    confirmed.append({
+                        "index": seg["index"],
+                        "index_sub": seg.get("index_sub", 0) or 0,
+                        "start": seg["start"],
+                    })
+        confirmed.sort(key=lambda s: s["start"])
+
+        # Process each segment
+        result = []
+        for seg in sorted_segments:
+            if seg.get("index") is not None and seg.get("filename"):
+                # Already has confirmed index
+                result.append(seg.copy())
+            else:
+                # Need to determine index
+                seg_copy = seg.copy()
+
+                # Find before and after indices
+                before = None
+                after = None
+
+                # Check confirmed indices
+                for conf in confirmed:
+                    if conf["start"] < seg["start"]:
+                        before = (conf["index"], conf["index_sub"])
+                    elif conf["start"] > seg["start"] and after is None:
+                        after = (conf["index"], conf["index_sub"])
+                        break
+
+                # Check already processed segments in result
+                for r in result:
+                    if r.get("index") is not None:
+                        if r["start"] < seg["start"]:
+                            r_idx = (r["index"], r.get("index_sub", 0) or 0)
+                            if before is None or r_idx > before:
+                                before = r_idx
+                        elif r["start"] > seg["start"]:
+                            r_idx = (r["index"], r.get("index_sub", 0) or 0)
+                            if after is None or r_idx < after:
+                                after = r_idx
+
+                # Determine index
+                new_index, new_index_sub = determine_index(before, after)
+                seg_copy["index"] = new_index
+                seg_copy["index_sub"] = new_index_sub if new_index_sub != 0 else None
+
+                result.append(seg_copy)
+
+        return result

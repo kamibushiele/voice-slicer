@@ -1,7 +1,8 @@
 """Utility functions for file handling and text processing."""
+import math
 import re
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple, Optional
 
 
 def split_sentences_with_positions(text: str) -> List[tuple]:
@@ -145,3 +146,119 @@ def format_timestamp(seconds: float) -> str:
     minutes = int((seconds % 3600) // 60)
     secs = seconds % 60
     return f"{hours:02d}:{minutes:02d}:{secs:06.3f}"
+
+
+# =============================================================================
+# Index関連関数
+# =============================================================================
+
+def calculate_index_digits(count: int) -> int:
+    """
+    セグメント数から必要なindex桁数を計算する。
+
+    Args:
+        count: セグメント数
+
+    Returns:
+        桁数（最小3桁）
+    """
+    if count <= 999:
+        return 3
+    return len(str(count))
+
+
+def determine_index(
+    before: Optional[Tuple[int, int]],
+    after: Optional[Tuple[int, int]],
+    l: int = 1
+) -> Tuple[int, int]:
+    """
+    挿入位置からindexを決定する。
+
+    Args:
+        before: 前のセグメントの(index, index_sub)、なければNone
+        after: 後のセグメントの(index, index_sub)、なければNone
+        l: 同じ場所に挿入するセグメント数（>=1）
+
+    Returns:
+        (index, index_sub) のタプル
+    """
+    # 前のindexがない場合は(0, 0)として扱う
+    N, n = before if before else (0, 0)
+
+    # 後のindexがない場合は(+inf, 0)として扱う
+    if after is None:
+        M, m = float('inf'), 0
+    else:
+        M, m = after
+
+    # ルール1: indexの空きがある場合
+    if N + 1 < M or (N + 1 == M and m != 0):
+        return (N + 1, 0)
+
+    # ルール2: indexの空きがないが次のindex_subが0
+    if N + 1 == M and m == 0:
+        X = N
+        x = n + (1000 - n) // (l + 1)
+        x = min(int(x), 999)
+        return (X, x)
+
+    # ルール3: N = M の場合（同一index内）
+    X = N
+    x = n + (m - n) // (l + 1)
+    x = min(int(x), 999)
+    return (X, x)
+
+
+def format_index_filename(
+    index: int,
+    index_sub: Optional[int],
+    text: str,
+    extension: str,
+    index_digits: int = 3,
+    max_text_length: int = None
+) -> str:
+    """
+    index, index_subからファイル名を生成する。
+
+    Args:
+        index: メインindex
+        index_sub: サブindex（0またはNoneの場合は省略）
+        text: セグメントのテキスト
+        extension: ファイル拡張子
+        index_digits: indexの桁数
+        max_text_length: テキスト部分の最大長
+
+    Returns:
+        生成されたファイル名
+    """
+    # Ensure extension has leading dot
+    if not extension.startswith('.'):
+        extension = '.' + extension
+
+    # indexを桁数に合わせてフォーマット
+    index_str = str(index).zfill(index_digits)
+
+    # index_subが0またはNoneの場合は省略
+    if index_sub and index_sub != 0:
+        index_part = f"{index_str}-{index_sub:03d}"
+    else:
+        index_part = index_str
+
+    # テキスト部分をサニタイズ
+    text_part = sanitize_filename(text, max_text_length)
+
+    return f"{index_part}_{text_part}{extension}"
+
+
+def migrate_old_index(old_index: int) -> Tuple[int, int]:
+    """
+    旧形式のindex（整数のみ）を新形式に変換する。
+
+    Args:
+        old_index: 旧形式のindex
+
+    Returns:
+        (index, index_sub) のタプル
+    """
+    return (old_index, 0)

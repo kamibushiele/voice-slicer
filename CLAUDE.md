@@ -104,10 +104,11 @@ UI非依存の純粋な処理ロジック。CLI/GUIどちらからも利用可�
 
 ### セグメントのindex
 
-- 各セグメントの固有ID（削除されても再利用されない）
-- 新規追加時は `max(index) + 1` を割り当て
-- 表示は開始時刻順にソート
-- ファイル名: `{index:03d}_{text}.{ext}`
+詳細は [docs/index_specification.md](docs/index_specification.md) を参照。
+
+- `index` + `index_sub` の組み合わせでソート順を決定
+- 書き出し時にindexが確定し、ファイル名が生成される
+- ファイル名: `{index}_{text}.{ext}` または `{index}-{index_sub}_{text}.{ext}`
 
 ### transcript_unexported.json
 

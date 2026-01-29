@@ -12,6 +12,7 @@ let currentData = null;
 let selectedSegmentIndex = null;
 let isModified = false;
 let isLoopEnabled = false;
+let nextInternalId = 1;  // 内部ID生成用カウンター
 
 // ===========================================
 // 初期化
@@ -153,6 +154,25 @@ function initKeyboardShortcuts() {
 // ファイル操作
 // ===========================================
 
+// 各セグメントに内部IDを付与（UI追跡用、保存時は除去）
+function assignInternalIds(segments) {
+    segments.forEach(seg => {
+        if (!seg._id) {
+            seg._id = nextInternalId++;
+        }
+    });
+}
+
+// 保存用にセグメントデータをクリーンアップ（内部IDを除去）
+function cleanSegmentsForSave(segments) {
+    return segments.map(seg => {
+        const cleaned = { ...seg };
+        delete cleaned._id;
+        delete cleaned.edited;
+        return cleaned;
+    });
+}
+
 async function loadInitialData() {
     try {
         setStatus('読み込み中...');
@@ -165,6 +185,9 @@ async function loadInitialData() {
         }
 
         currentData = data;
+
+        // 内部IDを付与
+        assignInternalIds(currentData.segments);
 
         // UIを更新
         updateFileInfo();
@@ -199,12 +222,18 @@ async function saveJson() {
     try {
         setStatus('保存中...');
 
+        // 保存用データを作成（内部IDを除去）
+        const saveData = {
+            ...currentData,
+            segments: cleanSegmentsForSave(currentData.segments)
+        };
+
         const response = await fetch('/api/save', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify(currentData)
+            body: JSON.stringify(saveData)
         });
 
         const result = await response.json();
@@ -240,7 +269,12 @@ async function regenerateAudio(forceExport = false) {
     try {
         setStatus(forceExport ? '全件書き出し中...' : '書き出し中...');
 
-        const requestData = { ...currentData, force: forceExport };
+        // 送信用データを作成（内部IDを除去）
+        const requestData = {
+            ...currentData,
+            segments: cleanSegmentsForSave(currentData.segments),
+            force: forceExport
+        };
 
         const response = await fetch('/api/regenerate', {
             method: 'POST',
@@ -256,9 +290,10 @@ async function regenerateAudio(forceExport = false) {
             throw new Error(result.error || '書き出しに失敗しました');
         }
 
-        // セグメントを更新
+        // セグメントを更新し、内部IDを付与
         if (result.segments) {
             currentData.segments = result.segments;
+            assignInternalIds(currentData.segments);
             renderSegmentList();
         }
 
@@ -464,17 +499,17 @@ function renderSegmentList() {
     const container = document.getElementById('segments-container');
     container.innerHTML = '';
 
-    // 選択中のセグメントのindexを保存
-    const selectedSegmentId = selectedSegmentIndex !== null
-        ? currentData.segments[selectedSegmentIndex]?.index
+    // 選択中のセグメントの内部IDを保存
+    const selectedInternalId = selectedSegmentIndex !== null
+        ? currentData.segments[selectedSegmentIndex]?._id
         : null;
 
     // 開始時刻順にソート
     currentData.segments.sort((a, b) => a.start - b.start);
 
     // 選択中のセグメントの新しい配列位置を探す
-    if (selectedSegmentId !== null) {
-        selectedSegmentIndex = currentData.segments.findIndex(s => s.index === selectedSegmentId);
+    if (selectedInternalId !== null) {
+        selectedSegmentIndex = currentData.segments.findIndex(s => s._id === selectedInternalId);
         if (selectedSegmentIndex === -1) selectedSegmentIndex = null;
     }
 
@@ -488,9 +523,13 @@ function renderSegmentList() {
             item.classList.add('edited');
         }
 
+        // 表示番号は位置番号（1-based）、書き出し済みの場合はindexも表示
+        const displayNum = index + 1;
+        const indexInfo = segment.filename ? ` (${segment.filename.split('_')[0]})` : '';
+
         item.innerHTML = `
             <div class="segment-item-header">
-                <span class="segment-index">#${segment.index || (index + 1)}</span>
+                <span class="segment-index">#${displayNum}${indexInfo}</span>
                 <span class="segment-time">${formatTime(segment.start)} - ${formatTime(segment.end)}</span>
             </div>
             <div class="segment-text">${escapeHtml(segment.text)}</div>
@@ -567,7 +606,10 @@ function updateEditPanel() {
 
     const segment = currentData.segments[selectedSegmentIndex];
 
-    document.getElementById('edit-segment-index').textContent = `#${segment.index || (selectedSegmentIndex + 1)}`;
+    // 表示番号は位置番号（1-based）、書き出し済みの場合はファイル名から取得したindexも表示
+    const displayNum = selectedSegmentIndex + 1;
+    const indexInfo = segment.filename ? ` (${segment.filename.split('_')[0]})` : '';
+    document.getElementById('edit-segment-index').textContent = `#${displayNum}${indexInfo}`;
     document.getElementById('edit-start').value = segment.start.toFixed(6);
     document.getElementById('edit-end').value = segment.end.toFixed(6);
     document.getElementById('edit-text').value = segment.text || '';
@@ -662,12 +704,12 @@ function addNewSegment() {
     const duration = wavesurfer ? wavesurfer.getDuration() : 10;
     const currentTime = wavesurfer ? wavesurfer.getCurrentTime() : 0;
 
-    // 既存の最大indexを取得して+1（indexは固有なので再利用しない）
-    const maxIndex = currentData.segments.reduce((max, seg) => Math.max(max, seg.index || 0), 0);
-    const newIndex = maxIndex + 1;
+    // 内部ID生成（UI追跡用）
+    const newInternalId = nextInternalId++;
 
+    // 新規セグメントにはindex/index_sub/filenameを設定しない（書き出し時に決定）
     const newSegment = {
-        index: newIndex,
+        _id: newInternalId,
         start: currentTime,
         end: Math.min(currentTime + 1, duration),
         text: '',
@@ -679,8 +721,8 @@ function addNewSegment() {
     // 先にソートする（renderSegmentListと同じ順序）
     currentData.segments.sort((a, b) => a.start - b.start);
 
-    // ソート後に新しいセグメントの位置を探す
-    const newSegmentArrayIndex = currentData.segments.findIndex(s => s.index === newIndex);
+    // ソート後に新しいセグメントの位置を探す（内部IDで検索）
+    const newSegmentArrayIndex = currentData.segments.findIndex(s => s._id === newInternalId);
 
     markModified();
 
