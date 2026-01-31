@@ -92,18 +92,18 @@ def parse_split_args():
     Parse arguments for split.py.
 
     Returns:
-        Parsed arguments namespace with: output_dir, margin_before, margin_after, max_filename_length
+        Parsed arguments namespace with: output_dir, margin_before, margin_after, max_filename_length, force
     """
     input_from_argv = _extract_positional_arg()
 
     parser = argparse.ArgumentParser(
-        description="Split audio into segments based on transcript.json."
+        description="Split audio into segments based on transcript_unexported.json."
     )
 
     parser.add_argument(
         "output_dir",
         type=str,
-        help="Output directory containing transcript.json"
+        help="Output directory containing transcript_unexported.json"
     )
 
     parser.add_argument(
@@ -127,6 +127,12 @@ def parse_split_args():
         help="Maximum length of generated filenames (default: None, respects OS limit)"
     )
 
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Force export all segments (ignore diff)"
+    )
+
     args = parser.parse_args()
 
     # Use output_dir extracted from sys.argv if available
@@ -140,10 +146,11 @@ def parse_split_args():
     if not output_path.exists():
         parser.error(f"Output directory not found: {args.output_dir}")
 
-    # Validate transcript.json exists
+    # Validate transcript_unexported.json or transcript.json exists
+    unexported_path = output_path / "transcript_unexported.json"
     transcript_path = output_path / "transcript.json"
-    if not transcript_path.exists():
-        parser.error(f"transcript.json not found in: {args.output_dir}")
+    if not unexported_path.exists() and not transcript_path.exists():
+        parser.error(f"transcript_unexported.json or transcript.json not found in: {args.output_dir}")
 
     return args
 
