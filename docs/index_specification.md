@@ -12,7 +12,7 @@ index_subの未定義と0は等価と解釈する。
 
 ## ワークフロー
 
-### 1. 文字起こし（transcribe.py）
+### 1. 初回の文字起こし（transcribe.py）
 
 音声ファイルからセグメントを生成し、`transcript_unexported.json`を出力する。
 
@@ -31,10 +31,10 @@ index_subの未定義と0は等価と解釈する。
 セグメントを音声ファイルとして書き出す。
 
 1. 時刻順にセグメントをソート
-2. 未設定のセグメントに対してindexを決定（既存のindexを基準に計算）
-3. ファイル名を生成し、音声ファイルを出力
-4. `transcript.json`に確定したindex, filenameを保存
-5. `transcript_unexported.json`を削除
+1. 未設定のセグメントに対してindexを決定（既存のindexを基準に計算）
+1. ファイル名を生成し、音声ファイルを出力
+1. `transcript.json`に確定したindex, filenameを保存
+1. `transcript_unexported.json`を削除
 
 ```
 [編集中]                    [書き出し後]
