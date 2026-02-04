@@ -1,152 +1,195 @@
-"""Split audio into segments based on transcript_unexported.json."""
+"""Split audio into segments based on transcript.json and edit_segments.json."""
 from pathlib import Path
 import sys
 import json
 
 from src.cli import parse_split_args
 from src.splitter import AudioSplitter
-from src.json_loader import load_transcript_json
+from src.json_loader import (
+    load_transcript_json,
+    load_edit_segments,
+    merge_segments,
+)
 from src.utils import calculate_index_digits
 
 
-def find_transcript_json(directory: Path) -> tuple[Path | None, bool]:
+def load_and_merge_segments(output_dir: Path) -> tuple[dict, dict, dict]:
     """
-    Find transcript JSON file in directory.
-    Prefer _unexported.json if it exists.
+    Load transcript.json and edit_segments.json, then merge segments.
+
+    Args:
+        output_dir: Output directory path
 
     Returns:
-        (path, has_unexported): JSON file path and whether it's unexported
+        (merged_segments, transcript_data, edit_segments_data)
     """
-    unexported = directory / 'transcript_unexported.json'
-    if unexported.exists():
-        return unexported, True
+    transcript_path = output_dir / "transcript.json"
+    edit_segments_path = output_dir / "edit_segments.json"
 
-    transcript = directory / 'transcript.json'
-    if transcript.exists():
-        return transcript, False
+    # Load transcript.json (required)
+    if not transcript_path.exists():
+        # Check for old format and migrate
+        unexported_path = output_dir / "transcript_unexported.json"
+        if unexported_path.exists():
+            # Load and migrate old format
+            transcript_data = load_transcript_json(str(unexported_path))
+            # Save as new format
+            with open(transcript_path, 'w', encoding='utf-8') as f:
+                json.dump(transcript_data, f, ensure_ascii=False, indent=2)
+            # Rename old file
+            unexported_path.rename(output_dir / "transcript_unexported.json.bak")
+            print("Migrated old format to new format")
+        else:
+            raise FileNotFoundError(f"transcript.json not found in: {output_dir}")
+    else:
+        transcript_data = load_transcript_json(str(transcript_path))
 
-    return None, False
+    # Load edit_segments.json if exists
+    edit_segments_data = {"version": 2, "segments": {}}
+    if edit_segments_path.exists():
+        edit_segments_data = load_edit_segments(str(edit_segments_path))
+
+    # Merge segments
+    merged = merge_segments(
+        transcript_data.get("segments", {}),
+        edit_segments_data.get("segments", {})
+    )
+
+    return merged, transcript_data, edit_segments_data
 
 
-def export_diff(
+def export_diff_v2(
     splitter: AudioSplitter,
-    current_segments: list,
-    previous_segments: list,
+    merged_segments: dict,
+    previous_segments: dict,
+    edit_segments: dict,
     index_digits: int,
+    index_sub_digits: int,
     force: bool = False
 ) -> dict:
     """
-    差分ベースで書き出しを行う。
+    差分ベースで書き出しを行う（新スキーマ対応）。
 
     Args:
         splitter: AudioSplitterインスタンス
-        current_segments: 現在のセグメント
-        previous_segments: 前回書き出し済みセグメント
+        merged_segments: マージ済みセグメント（ID -> segment）
+        previous_segments: 前回書き出し済みセグメント（transcript.json）
+        edit_segments: 編集差分セグメント（edit_segments.json）
         index_digits: indexの桁数
+        index_sub_digits: index_subの桁数
         force: 強制書き出しフラグ
 
     Returns:
-        結果辞書 (exported, renamed, deleted, segments)
+        結果辞書 (exported, renamed, deleted, skipped, segments)
     """
-    # 前回のセグメントをファイル名でマッピング
-    previous_by_filename = {}
-    if not force:
-        for seg in previous_segments:
-            if seg.get('filename'):
-                previous_by_filename[seg['filename']] = seg
-
-    # 未確定セグメントにindexを割り当て
-    segments_with_index = splitter.assign_indices(
-        current_segments,
-        existing_segments=previous_segments if not force else None
-    )
-
-    # 差分を計算
     deleted_files = []
     renamed_files = []
     exported_files = []
+    skipped_count = 0
 
-    # 現在のセグメントのファイル名を収集
-    current_filenames = set()
-    for seg in segments_with_index:
-        if seg.get('filename'):
-            current_filenames.add(seg['filename'])
+    # 1. 削除処理: edit_segmentsで"deleted: true"のセグメント
+    for seg_id, changes in edit_segments.items():
+        if changes.get("deleted"):
+            if seg_id in previous_segments:
+                prev_seg = previous_segments[seg_id]
+                # ファイル名を再計算
+                if prev_seg.get("index") is not None:
+                    filename = splitter.generate_filename(
+                        prev_seg,
+                        index_digits=index_digits,
+                        index_sub_digits=index_sub_digits
+                    )
+                    if splitter.delete_file(filename):
+                        deleted_files.append(filename)
 
-    # 1. 削除されたセグメント（前回にあって今回にないファイル名）
-    if not force:
-        for prev_seg in previous_segments:
-            prev_filename = prev_seg.get('filename')
-            if prev_filename and prev_filename not in current_filenames:
-                # このセグメントに対応する新しいセグメントがあるか確認
-                found_update = False
-                for seg in segments_with_index:
-                    if (abs(seg['start'] - prev_seg['start']) < 0.001 and
-                        abs(seg['end'] - prev_seg['end']) < 0.001):
-                        found_update = True
-                        break
-                if not found_update:
-                    if splitter.delete_file(prev_filename):
-                        deleted_files.append(prev_filename)
+    # 2. マージ済みセグメントにindexを割り当て
+    segments_with_index = splitter.assign_indices(
+        merged_segments,
+        existing_segments=previous_segments if not force else None,
+        index_sub_digits=index_sub_digits
+    )
 
-    # 2. 各セグメントの処理
-    for seg in segments_with_index:
-        new_filename = splitter.generate_filename(seg, index_digits=index_digits)
+    # 3. 各セグメントの処理
+    result_segments = {}
+    for seg_id, seg in segments_with_index.items():
+        new_filename = splitter.generate_filename(
+            seg,
+            index_digits=index_digits,
+            index_sub_digits=index_sub_digits
+        )
 
-        # 既存のファイル名を持つセグメントを検索
-        old_seg = None
-        if not force:
-            if seg.get('filename') and seg['filename'] in previous_by_filename:
-                old_seg = previous_by_filename[seg['filename']]
-            else:
-                # ファイル名がない場合、同じstart/endを持つセグメントを検索
-                for prev_seg in previous_segments:
-                    if (abs(seg['start'] - prev_seg['start']) < 0.001 and
-                        abs(seg['end'] - prev_seg['end']) < 0.001):
-                        old_seg = prev_seg
-                        break
+        # 前回のセグメントを取得
+        prev_seg = previous_segments.get(seg_id) if not force else None
 
-        if old_seg and not force:
-            old_filename = old_seg.get('filename')
+        # 変更内容を取得
+        changes = edit_segments.get(seg_id, {})
 
-            # start/endが変更されたか確認
+        if prev_seg and not force:
+            # 既存セグメントの処理
+
+            # 時間変更があるか確認
             time_changed = (
-                abs(seg['start'] - old_seg['start']) > 0.001 or
-                abs(seg['end'] - old_seg['end']) > 0.001
+                "start" in changes or "end" in changes or
+                abs(seg["start"] - prev_seg["start"]) > 0.001 or
+                abs(seg["end"] - prev_seg["end"]) > 0.001
+            )
+
+            # 古いファイル名を計算
+            old_filename = splitter.generate_filename(
+                prev_seg,
+                index_digits=index_digits,
+                index_sub_digits=index_sub_digits
             )
 
             if time_changed:
-                # 時刻変更 → 古いファイル削除 + 再書き出し
-                if old_filename and old_filename != new_filename:
+                # 時間変更 → 古いファイル削除 + 再書き出し
+                if old_filename != new_filename:
                     splitter.delete_file(old_filename)
-                filename = splitter.export_segment(seg, index_digits=index_digits)
+                filename = splitter.export_segment(
+                    seg,
+                    index_digits=index_digits,
+                    index_sub_digits=index_sub_digits
+                )
                 exported_files.append(filename)
-                seg['filename'] = filename
-            elif old_filename != new_filename:
-                # テキストのみ変更またはindex変更 → リネーム
-                if old_filename and splitter.rename_file(old_filename, new_filename):
-                    renamed_files.append({'old': old_filename, 'new': new_filename})
-                    seg['filename'] = new_filename
-                elif not old_filename:
+            elif "text" in changes or old_filename != new_filename:
+                # テキストのみ変更 → リネーム
+                if splitter.rename_file(old_filename, new_filename):
+                    renamed_files.append({"old": old_filename, "new": new_filename})
+                elif not Path(splitter.output_dir / old_filename).exists():
                     # 古いファイルがない場合は新規書き出し
-                    filename = splitter.export_segment(seg, index_digits=index_digits)
+                    filename = splitter.export_segment(
+                        seg,
+                        index_digits=index_digits,
+                        index_sub_digits=index_sub_digits
+                    )
                     exported_files.append(filename)
-                    seg['filename'] = filename
-                else:
-                    seg['filename'] = new_filename
             else:
-                # 変更なし
-                seg['filename'] = old_filename
+                # 変更なし → スキップ
+                skipped_count += 1
         else:
             # 新規セグメントまたは強制書き出し → 書き出し
-            filename = splitter.export_segment(seg, index_digits=index_digits)
+            filename = splitter.export_segment(
+                seg,
+                index_digits=index_digits,
+                index_sub_digits=index_sub_digits
+            )
             exported_files.append(filename)
-            seg['filename'] = filename
+
+        # 結果セグメントを保存
+        result_segments[seg_id] = {
+            "start": seg["start"],
+            "end": seg["end"],
+            "text": seg["text"],
+            "index": seg["index"],
+            "index_sub": seg.get("index_sub"),
+        }
 
     return {
-        'exported': exported_files,
-        'renamed': renamed_files,
-        'deleted': deleted_files,
-        'segments': segments_with_index
+        "exported": exported_files,
+        "renamed": renamed_files,
+        "deleted": deleted_files,
+        "skipped": skipped_count,
+        "segments": result_segments
     }
 
 
@@ -172,45 +215,33 @@ def main():
         print("Mode: Diff export (changed segments only)")
 
     try:
-        # Step 1: Find and load JSON
+        # Step 1: Load and merge JSON files
         print("\n" + "-" * 40)
         print("Loading transcript JSON...")
         print("-" * 40)
 
-        json_path, has_unexported = find_transcript_json(output_dir)
-        if json_path is None:
-            print(f"\n[ERROR] No transcript JSON found in: {output_dir}")
-            return 1
+        merged_segments, transcript_data, edit_segments_data = load_and_merge_segments(output_dir)
 
-        print(f"Loading: {json_path.name}")
-        data = load_transcript_json(str(json_path))
-        source_audio = Path(data["source_file"])
+        source_audio = Path(transcript_data["source_file"])
+        output_format = transcript_data.get("output_format", {})
 
         print(f"Source audio: {source_audio}")
-        print(f"Segments: {len(data['segments'])}")
+        print(f"Total segments (merged): {len(merged_segments)}")
 
         # Verify source audio exists
         if not source_audio.exists():
             print(f"\n[ERROR] Source audio file not found: {source_audio}")
-            print("Please ensure the audio file exists at the path specified in transcript JSON")
+            print("Please ensure the audio file exists at the path specified in transcript.json")
             return 1
 
-        current_segments = data['segments']
-
-        # Load previous transcript.json for diff calculation
-        previous_segments = []
-        exported_json_path = output_dir / 'transcript.json'
-        if exported_json_path.exists() and not force_export:
-            print(f"Loading previous: transcript.json")
-            with open(exported_json_path, 'r', encoding='utf-8') as f:
-                prev_data = json.load(f)
-                previous_segments = prev_data.get('segments', [])
-            print(f"Previous segments: {len(previous_segments)}")
-
-        # Get or calculate index_digits
-        index_digits = data.get('index_digits')
+        # Get settings from output_format
+        index_digits = output_format.get("index_digits")
         if index_digits is None:
-            index_digits = calculate_index_digits(len(current_segments))
+            index_digits = calculate_index_digits(len(merged_segments))
+
+        index_sub_digits = output_format.get("index_sub_digits", 3)
+        margin_before = output_format.get("margin", {}).get("before", 0.1)
+        margin_after = output_format.get("margin", {}).get("after", 0.2)
 
         # Step 2: Split audio with diff
         print("\n" + "-" * 40)
@@ -223,48 +254,38 @@ def main():
         splitter = AudioSplitter(
             audio_path=str(source_audio),
             output_dir=str(output_dir),
-            margin_before=args.margin_before,
-            margin_after=args.margin_after,
+            margin_before=margin_before,
+            margin_after=margin_after,
             max_filename_length=args.max_filename_length,
         )
 
-        result = export_diff(
+        result = export_diff_v2(
             splitter=splitter,
-            current_segments=current_segments,
-            previous_segments=previous_segments,
+            merged_segments=merged_segments,
+            previous_segments=transcript_data.get("segments", {}),
+            edit_segments=edit_segments_data.get("segments", {}),
             index_digits=index_digits,
+            index_sub_digits=index_sub_digits,
             force=force_export
         )
 
-        # Step 3: Save transcript.json and remove _unexported
+        # Step 3: Save transcript.json and remove edit_segments.json
         print("\n" + "-" * 40)
         print("Saving transcript.json...")
         print("-" * 40)
 
-        save_data = {
-            'source_file': data.get('source_file', ''),
-            'index_digits': index_digits,
-            'segments': [
-                {
-                    'index': seg['index'],
-                    'index_sub': seg.get('index_sub'),
-                    'filename': seg['filename'],
-                    'start': seg['start'],
-                    'end': seg['end'],
-                    'text': seg['text'],
-                }
-                for seg in result['segments']
-            ]
-        }
+        # Update output_format with calculated index_digits
+        output_format["index_digits"] = index_digits
+        output_format["index_sub_digits"] = index_sub_digits
 
-        with open(exported_json_path, 'w', encoding='utf-8') as f:
-            json.dump(save_data, f, ensure_ascii=False, indent=2)
+        splitter.save_metadata(
+            segments=result["segments"],
+            output_format=output_format
+        )
 
-        # Remove _unexported.json
-        unexported_path = output_dir / 'transcript_unexported.json'
-        if unexported_path.exists():
-            unexported_path.unlink()
-            print("Removed: transcript_unexported.json")
+        # Remove edit_segments.json
+        splitter.delete_edit_segments()
+        print("Removed: edit_segments.json")
 
         # Summary
         print("\n" + "=" * 60)
@@ -272,24 +293,26 @@ def main():
         print("=" * 60)
         print(f"Total segments: {len(result['segments'])}")
 
-        if result['exported']:
+        if result["exported"]:
             print(f"Exported: {len(result['exported'])} files")
-        if result['renamed']:
+        if result["renamed"]:
             print(f"Renamed: {len(result['renamed'])} files")
-        if result['deleted']:
+        if result["deleted"]:
             print(f"Deleted: {len(result['deleted'])} files")
+        if result["skipped"] > 0:
+            print(f"Skipped (no changes): {result['skipped']} files")
 
-        if not result['exported'] and not result['renamed'] and not result['deleted']:
+        if not result["exported"] and not result["renamed"] and not result["deleted"]:
             print("No changes detected.")
 
         print(f"\nOutput directory: {output_dir.absolute()}")
 
         # Show sample outputs
-        if result['exported']:
+        if result["exported"]:
             print("\nExported files:")
-            for filename in result['exported'][:5]:
+            for filename in result["exported"][:5]:
                 print(f"  - {filename}")
-            if len(result['exported']) > 5:
+            if len(result["exported"]) > 5:
                 print(f"  ... and {len(result['exported']) - 5} more files")
 
         return 0

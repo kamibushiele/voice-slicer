@@ -28,7 +28,8 @@ def parse_transcribe_args():
     Parse arguments for transcribe.py.
 
     Returns:
-        Parsed arguments namespace with: input_file, model, language, output_dir, device
+        Parsed arguments namespace with: input_file, model, language, output_dir, device,
+        index_digits, index_sub_digits, filename_template, margin_before, margin_after
     """
     input_from_argv = _extract_positional_arg()
 
@@ -72,6 +73,41 @@ def parse_transcribe_args():
         help="Device to use for transcription: cuda (GPU) or cpu. Auto-detect if not specified."
     )
 
+    parser.add_argument(
+        "--index-digits",
+        type=int,
+        default=None,
+        help="Number of digits for index (default: auto-calculated from segment count)"
+    )
+
+    parser.add_argument(
+        "--index-sub-digits",
+        type=int,
+        default=3,
+        help="Number of digits for sub-index (default: 3)"
+    )
+
+    parser.add_argument(
+        "--filename-template",
+        type=str,
+        default="{index}_{basename}",
+        help="Filename template (default: {index}_{basename})"
+    )
+
+    parser.add_argument(
+        "--margin-before",
+        type=float,
+        default=0.1,
+        help="Margin in seconds before segment start (default: 0.1)"
+    )
+
+    parser.add_argument(
+        "--margin-after",
+        type=float,
+        default=0.2,
+        help="Margin in seconds after segment end (default: 0.2)"
+    )
+
     args = parser.parse_args()
 
     # Use input file extracted from sys.argv if available
@@ -92,32 +128,18 @@ def parse_split_args():
     Parse arguments for split.py.
 
     Returns:
-        Parsed arguments namespace with: output_dir, margin_before, margin_after, max_filename_length, force
+        Parsed arguments namespace with: output_dir, max_filename_length, force
     """
     input_from_argv = _extract_positional_arg()
 
     parser = argparse.ArgumentParser(
-        description="Split audio into segments based on transcript_unexported.json."
+        description="Split audio into segments based on transcript.json and edit_segments.json."
     )
 
     parser.add_argument(
         "output_dir",
         type=str,
-        help="Output directory containing transcript_unexported.json"
-    )
-
-    parser.add_argument(
-        "--margin-before",
-        type=float,
-        default=0.1,
-        help="Margin in seconds before segment start (default: 0.1)"
-    )
-
-    parser.add_argument(
-        "--margin-after",
-        type=float,
-        default=0.2,
-        help="Margin in seconds after segment end (default: 0.2)"
+        help="Output directory containing transcript.json"
     )
 
     parser.add_argument(
@@ -146,11 +168,15 @@ def parse_split_args():
     if not output_path.exists():
         parser.error(f"Output directory not found: {args.output_dir}")
 
-    # Validate transcript_unexported.json or transcript.json exists
-    unexported_path = output_path / "transcript_unexported.json"
+    # Validate transcript.json exists (required for new format)
     transcript_path = output_path / "transcript.json"
-    if not unexported_path.exists() and not transcript_path.exists():
-        parser.error(f"transcript_unexported.json or transcript.json not found in: {args.output_dir}")
+    if not transcript_path.exists():
+        # Check for old format files for migration
+        unexported_path = output_path / "transcript_unexported.json"
+        if unexported_path.exists():
+            pass  # Will be migrated during loading
+        else:
+            parser.error(f"transcript.json not found in: {args.output_dir}")
 
     return args
 

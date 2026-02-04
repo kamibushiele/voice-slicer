@@ -5,6 +5,7 @@ import sys
 from src.cli import parse_transcribe_args
 from src.transcribe import Transcriber
 from src.splitter import AudioSplitter
+from src.utils import calculate_index_digits
 
 
 def main():
@@ -27,9 +28,18 @@ def main():
     else:
         output_dir = args.output_dir
 
+    output_path = Path(output_dir)
+
     print(f"\nInput file: {input_file}")
     print(f"Model: {args.model}")
     print(f"Output directory: {output_dir}")
+
+    # Check if transcript.json already exists
+    transcript_path = output_path / "transcript.json"
+    if transcript_path.exists():
+        print(f"\n[ERROR] transcript.json already exists in: {output_dir}", file=sys.stderr)
+        print("Please remove it or use a different output directory.", file=sys.stderr)
+        return 1
 
     try:
         # Step 1: Initialize transcriber
@@ -64,26 +74,58 @@ def main():
             print("\nNo speech segments detected. Exiting.")
             return 0
 
-        # Step 3: Generate metadata
+        # Step 3: Generate metadata in new format
         print("\n" + "-" * 40)
         print("Generating metadata...")
         print("-" * 40)
 
+        # Calculate index_digits if not provided
+        index_digits = args.index_digits
+        if index_digits is None:
+            index_digits = calculate_index_digits(len(segments))
+
+        # Build output_format
+        output_format = {
+            "index_digits": index_digits,
+            "index_sub_digits": args.index_sub_digits,
+            "filename_template": args.filename_template,
+            "margin": {
+                "before": args.margin_before,
+                "after": args.margin_after
+            }
+        }
+
         splitter = AudioSplitter(
             audio_path=str(input_file),
             output_dir=output_dir,
+            margin_before=args.margin_before,
+            margin_after=args.margin_after,
         )
 
-        metadata = splitter.generate_metadata_only(segments)
-        splitter.save_metadata(metadata, unexported=True)
+        # Convert segments to dict format with IDs (for edit_segments.json)
+        edit_segments = {}
+        for i, seg in enumerate(segments, start=1):
+            edit_segments[str(i)] = {
+                "start": seg["start"],
+                "end": seg["end"],
+                "text": seg["text"],
+            }
+
+        # Save transcript.json with empty segments (new format)
+        splitter.save_metadata(segments={}, output_format=output_format)
+
+        # Save edit_segments.json with all segments
+        splitter.save_edit_segments(edit_segments)
 
         # Summary
         print("\n" + "=" * 60)
         print("Transcription Complete!")
         print("=" * 60)
-        print(f"Total segments: {len(metadata)}")
+        print(f"Total segments: {len(segments)}")
         print(f"Output directory: {Path(output_dir).absolute()}")
-        print(f"Metadata file: transcript_unexported.json")
+        print(f"Files created:")
+        print(f"  - transcript.json (settings only)")
+        print(f"  - edit_segments.json (all segments)")
         print("\nNext step:")
         print(f"  uv run python edit.py {output_dir}")
 

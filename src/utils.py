@@ -170,7 +170,8 @@ def calculate_index_digits(count: int) -> int:
 def determine_index(
     before: Optional[Tuple[int, int]],
     after: Optional[Tuple[int, int]],
-    l: int = 1
+    l: int = 1,
+    index_sub_digits: int = 3
 ) -> Tuple[int, int]:
     """
     挿入位置からindexを決定する。
@@ -179,10 +180,14 @@ def determine_index(
         before: 前のセグメントの(index, index_sub)、なければNone
         after: 後のセグメントの(index, index_sub)、なければNone
         l: 同じ場所に挿入するセグメント数（>=1）
+        index_sub_digits: サブインデックスの桁数（デフォルト: 3）
 
     Returns:
         (index, index_sub) のタプル
     """
+    # 最大値を計算: 10^d - 1
+    max_index_sub = (10 ** index_sub_digits) - 1
+
     # 前のindexがない場合は(0, 0)として扱う
     N, n = before if before else (0, 0)
 
@@ -199,14 +204,14 @@ def determine_index(
     # ルール2: indexの空きがないが次のindex_subが0
     if N + 1 == M and m == 0:
         X = N
-        x = n + (1000 - n) // (l + 1)
-        x = min(int(x), 999)
+        x = n + (max_index_sub - n) // (l + 1)
+        x = min(int(x), max_index_sub)
         return (X, x)
 
     # ルール3: N = M の場合（同一index内）
     X = N
     x = n + (m - n) // (l + 1)
-    x = min(int(x), 999)
+    x = min(int(x), max_index_sub)
     return (X, x)
 
 
@@ -216,6 +221,7 @@ def format_index_filename(
     text: str,
     extension: str,
     index_digits: int = 3,
+    index_sub_digits: int = 3,
     max_text_length: int = None
 ) -> str:
     """
@@ -227,6 +233,7 @@ def format_index_filename(
         text: セグメントのテキスト
         extension: ファイル拡張子
         index_digits: indexの桁数
+        index_sub_digits: index_subの桁数
         max_text_length: テキスト部分の最大長
 
     Returns:
@@ -241,7 +248,8 @@ def format_index_filename(
 
     # index_subが0またはNoneの場合は省略
     if index_sub and index_sub != 0:
-        index_part = f"{index_str}-{index_sub:03d}"
+        index_sub_str = str(index_sub).zfill(index_sub_digits)
+        index_part = f"{index_str}-{index_sub_str}"
     else:
         index_part = index_str
 
@@ -249,6 +257,84 @@ def format_index_filename(
     text_part = sanitize_filename(text, max_text_length)
 
     return f"{index_part}_{text_part}{extension}"
+
+
+def format_index_string(
+    index: int,
+    index_sub: Optional[int],
+    index_digits: int = 3,
+    index_sub_digits: int = 3
+) -> str:
+    """
+    indexとindex_subをフォーマットされた文字列に変換する。
+    テンプレート変数{index}の展開に使用する。
+
+    Args:
+        index: メインindex
+        index_sub: サブindex（0またはNoneの場合は省略）
+        index_digits: indexの桁数
+        index_sub_digits: index_subの桁数
+
+    Returns:
+        フォーマットされたindex文字列（例: "001", "001-500"）
+    """
+    # indexを桁数に合わせてフォーマット
+    index_str = str(index).zfill(index_digits)
+
+    # index_subが0またはNoneの場合は省略
+    if index_sub and index_sub != 0:
+        index_sub_str = str(index_sub).zfill(index_sub_digits)
+        return f"{index_str}-{index_sub_str}"
+    else:
+        return index_str
+
+
+def expand_filename_template(
+    template: str,
+    index: int,
+    index_sub: Optional[int],
+    text: str,
+    extension: str,
+    index_digits: int = 3,
+    index_sub_digits: int = 3,
+    max_text_length: int = None
+) -> str:
+    """
+    ファイル名テンプレートを展開する。
+
+    Args:
+        template: ファイル名テンプレート（例: "{index}_{basename}"）
+        index: メインindex
+        index_sub: サブindex（0またはNoneの場合は省略）
+        text: セグメントのテキスト
+        extension: ファイル拡張子（先頭のドットあり）
+        index_digits: indexの桁数
+        index_sub_digits: index_subの桁数
+        max_text_length: テキスト部分の最大長
+
+    Returns:
+        展開されたファイル名
+    """
+    # Ensure extension has leading dot
+    if not extension.startswith('.'):
+        extension = '.' + extension
+
+    # {index}を展開
+    index_str = format_index_string(index, index_sub, index_digits, index_sub_digits)
+
+    # {basename}を展開（サニタイズ済みtext + 拡張子）
+    text_part = sanitize_filename(text, max_text_length)
+    basename = f"{text_part}{extension}"
+
+    # テンプレートを展開
+    result = template.replace("{index}", index_str)
+    result = result.replace("{basename}", basename)
+
+    # テンプレートに拡張子が含まれていない場合は追加
+    if not result.endswith(extension):
+        result += extension
+
+    return result
 
 
 def migrate_old_index(old_index: int) -> Tuple[int, int]:
