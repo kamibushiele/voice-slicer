@@ -169,6 +169,7 @@ function cleanSegmentsForSave(segments) {
         const cleaned = { ...seg };
         delete cleaned._id;
         delete cleaned.edited;
+        delete cleaned.index_formatted;  // 表示専用フィールドを除外
         return cleaned;
     });
 }
@@ -523,13 +524,13 @@ function renderSegmentList() {
             item.classList.add('edited');
         }
 
-        // 表示番号は位置番号（1-based）、書き出し済みの場合はindexも表示
-        const displayNum = index + 1;
-        const indexInfo = segment.filename ? ` (${segment.filename.split('_')[0]})` : '';
+        // 表示番号はセグメントID、書き出し済みの場合はindexも表示
+        const segId = segment._seg_id || '?';
+        const indexInfo = segment.index_formatted ? ` (${segment.index_formatted})` : '';
 
         item.innerHTML = `
             <div class="segment-item-header">
-                <span class="segment-index">#${displayNum}${indexInfo}</span>
+                <span class="segment-index">#${segId}${indexInfo}</span>
                 <span class="segment-time">${formatTime(segment.start)} - ${formatTime(segment.end)}</span>
             </div>
             <div class="segment-text">${escapeHtml(segment.text)}</div>
@@ -606,10 +607,10 @@ function updateEditPanel() {
 
     const segment = currentData.segments[selectedSegmentIndex];
 
-    // 表示番号は位置番号（1-based）、書き出し済みの場合はファイル名から取得したindexも表示
-    const displayNum = selectedSegmentIndex + 1;
-    const indexInfo = segment.filename ? ` (${segment.filename.split('_')[0]})` : '';
-    document.getElementById('edit-segment-index').textContent = `#${displayNum}${indexInfo}`;
+    // 表示番号はセグメントID、書き出し済みの場合はindexも表示
+    const segId = segment._seg_id || '?';
+    const indexInfo = segment.index_formatted ? ` (${segment.index_formatted})` : '';
+    document.getElementById('edit-segment-index').textContent = `#${segId}${indexInfo}`;
     document.getElementById('edit-start').value = segment.start.toFixed(6);
     document.getElementById('edit-end').value = segment.end.toFixed(6);
     document.getElementById('edit-text').value = segment.text || '';
@@ -707,9 +708,17 @@ function addNewSegment() {
     // 内部ID生成（UI追跡用）
     const newInternalId = nextInternalId++;
 
-    // 新規セグメントにはindex/index_sub/filenameを設定しない（書き出し時に決定）
+    // セグメントID生成（既存IDの最大値+1）
+    const existingIds = currentData.segments
+        .map(s => parseInt(s._seg_id || '0', 10))
+        .filter(id => !isNaN(id));
+    const maxId = existingIds.length > 0 ? Math.max(...existingIds) : 0;
+    const newSegId = String(maxId + 1);
+
+    // 新規セグメントにはindex/index_subを設定しない（書き出し時に決定）
     const newSegment = {
         _id: newInternalId,
+        _seg_id: newSegId,
         start: currentTime,
         end: Math.min(currentTime + 1, duration),
         text: '',
