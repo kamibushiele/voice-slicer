@@ -532,6 +532,11 @@ def regenerate_audio():
         # edit_segments.jsonを削除
         splitter.delete_edit_segments()
 
+        # _initial_dataを更新（次回の差分計算のため）
+        if _initial_data:
+            _initial_data['_transcript_segments'] = result_segments
+            _initial_data['_edit_segments'] = {}
+
         # 結果メッセージを生成
         messages = []
         if exported_files:
