@@ -560,22 +560,7 @@ kbd {
 /* Wavesurfer リージョンのカスタムスタイル */
 .segment-region {
     border-radius: 2px;
-}
-
-/* リージョンのリサイズハンドル */
-.segment-region [data-resize] {
-    width: 8px !important;
-    background-color: rgba(255, 255, 255, 0.6) !important;
-    cursor: ew-resize !important;
-}
-
-.segment-region [data-resize]:hover {
-    background-color: rgba(255, 255, 255, 0.9) !important;
-}
-
-/* 短いセグメント用: 最小幅を確保 */
-.segment-region {
-    min-width: 20px !important;
+    /* min-widthは設定しない: 実際の開始・終了位置に正確に表示 */
 }
 
 /* スクロールバー */
