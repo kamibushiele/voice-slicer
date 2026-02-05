@@ -12,6 +12,7 @@ let currentData = null;
 let selectedSegmentIndex = null;
 let isModified = false;
 let isLoopEnabled = false;
+let isRecreatingRegions = false;  // リージョン再作成時のイベント制御用
 let nextInternalId = 1;  // 内部ID生成用カウンター
 
 // ===========================================
@@ -437,12 +438,18 @@ function initWavesurfer() {
     });
 
     regions.on('region-updated', (region) => {
+        if (isRecreatingRegions) return;
+
         const index = parseInt(region.id.replace('region-', ''));
         const segment = currentData.segments[index];
 
         if (segment) {
-            segment.start = region.start;
-            segment.end = region.end;
+            // 常に start <= end を保証（正規化）
+            const newStart = Math.min(region.start, region.end);
+            const newEnd = Math.max(region.start, region.end);
+
+            segment.start = newStart;
+            segment.end = newEnd;
             segment.edited = true;
 
             markModified();
@@ -451,6 +458,15 @@ function initWavesurfer() {
             if (selectedSegmentIndex === index) {
                 updateEditPanel();
             }
+
+            // 重なり状態が変わった可能性があるため、リージョンを再作成
+            isRecreatingRegions = true;
+            createRegions();
+            // 選択状態を復元
+            if (selectedSegmentIndex !== null) {
+                updateRegionColor(selectedSegmentIndex);
+            }
+            isRecreatingRegions = false;
         }
     });
 
@@ -459,9 +475,67 @@ function initWavesurfer() {
     wavesurfer.load(audioUrl);
 }
 
+// ===========================================
+// セグメント重なり計算
+// ===========================================
+
+/**
+ * セグメントの重なり情報を計算
+ * @param {Array} segments - セグメントの配列
+ * @returns {Array} 各セグメントの { layerIndex, totalLayers }
+ */
+function calculateOverlapInfo(segments) {
+    const info = segments.map(() => ({ layerIndex: 0, totalLayers: 1 }));
+
+    for (let i = 0; i < segments.length; i++) {
+        const seg = segments[i];
+        const overlapping = [];
+
+        // このセグメントと重なる全セグメントを探す
+        for (let j = 0; j < segments.length; j++) {
+            if (i === j) continue;
+            const other = segments[j];
+
+            // 重なり判定: 開始が他方の終了より前 かつ 終了が他方の開始より後
+            if (seg.start < other.end && seg.end > other.start) {
+                overlapping.push(j);
+            }
+        }
+
+        if (overlapping.length === 0) continue;
+
+        // 既に割り当てられたレイヤーを収集（自分より前に処理されたもののみ）
+        const usedLayers = new Set();
+        for (const j of overlapping) {
+            if (j < i) {
+                usedLayers.add(info[j].layerIndex);
+            }
+        }
+
+        // 空いているレイヤーを探す
+        let layer = 0;
+        while (usedLayers.has(layer)) {
+            layer++;
+        }
+        info[i].layerIndex = layer;
+
+        // このグループの総レイヤー数を更新
+        const maxLayer = Math.max(layer + 1, ...overlapping.map(j => info[j].totalLayers));
+        info[i].totalLayers = maxLayer;
+        for (const j of overlapping) {
+            info[j].totalLayers = maxLayer;
+        }
+    }
+
+    return info;
+}
+
 function createRegions() {
     // 既存のリージョンをクリア
     regions.clearRegions();
+
+    // 重なり情報を計算
+    const overlapInfo = calculateOverlapInfo(currentData.segments);
 
     // セグメントごとにリージョンを作成
     currentData.segments.forEach((segment, index) => {
@@ -469,32 +543,32 @@ function createRegions() {
             'rgba(39, 174, 96, 0.3)' :
             'rgba(52, 152, 219, 0.3)';
 
+        // 常に start <= end を保証（ハンドル位置の逆転を防止）
+        const displayStart = Math.min(segment.start, segment.end);
+        const displayEnd = Math.max(segment.start, segment.end);
+
         const region = regions.addRegion({
             id: `region-${index}`,
-            start: segment.start,
-            end: segment.end,
+            start: displayStart,
+            end: displayEnd,
             color: color,
             drag: true,
             resize: true,
-            minLength: 0.001,  // 最小長さを設定
+            minLength: 0,  // 幅0を許容（ハンドルは独立して操作可能）
         });
 
-        // セグメントを下80%に配置（上20%はタイムラインクリック用）
+        // 重なり情報に基づいて高さと位置を設定
+        const { layerIndex, totalLayers } = overlapInfo[index];
+        const availableHeight = 80; // 使用可能な高さ（%）
+        const baseTop = 20; // 開始位置（%）
+
+        const layerHeight = availableHeight / totalLayers;
+        const top = baseTop + (layerIndex * layerHeight);
+
         if (region.element) {
             region.element.classList.add('segment-region');
-            region.element.style.height = '80%';
-            region.element.style.top = '20%';
-
-            // 短いセグメントでもリサイズハンドルが表示されるように最小幅を確保
-            region.element.style.minWidth = '16px';
-
-            // リサイズハンドルを強制的に表示
-            const handles = region.element.querySelectorAll('[data-resize]');
-            handles.forEach(handle => {
-                handle.style.width = '8px';
-                handle.style.minWidth = '8px';
-                handle.style.display = 'block';
-            });
+            region.element.style.height = `${layerHeight}%`;
+            region.element.style.top = `${top}%`;
         }
     });
 }
@@ -679,18 +753,17 @@ function applyEditChanges() {
     segment.text = newText;
     segment.edited = true;
 
-    // リージョンを更新
-    const region = regions.getRegions().find(r => r.id === `region-${selectedSegmentIndex}`);
-    if (region) {
-        region.setOptions({
-            start: newStart,
-            end: newEnd,
-        });
-    }
-
     markModified();
     renderSegmentList();
-    updateRegionColor(selectedSegmentIndex);
+
+    // 重なり状態が変わった可能性があるため、リージョンを再作成
+    isRecreatingRegions = true;
+    createRegions();
+    // 選択状態を復元
+    if (selectedSegmentIndex !== null) {
+        updateRegionColor(selectedSegmentIndex);
+    }
+    isRecreatingRegions = false;
 }
 
 function deleteSelectedSegment() {
