@@ -4,6 +4,7 @@
 
 import json
 import os
+import uuid
 from pathlib import Path
 from flask import Flask, render_template, request, jsonify, send_file
 import sys
@@ -27,6 +28,8 @@ ALLOWED_AUDIO_EXTENSIONS = {'.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac'}
 
 # 起動時に読み込むデータ
 _initial_data = None
+# セッションID（サーバー起動ごとに生成）
+_session_id = str(uuid.uuid4())
 
 
 def segments_dict_to_list(segments_dict: dict, output_format: dict = None) -> list:
@@ -259,6 +262,7 @@ def get_data():
 
     # フロントエンド用にクリーンアップしたデータを返す
     response_data = {k: v for k, v in _initial_data.items() if not k.startswith('_')}
+    response_data['session_id'] = _session_id
     return jsonify(response_data)
 
 
@@ -270,6 +274,14 @@ def save_json():
 
         if not data:
             return jsonify({'error': 'データがありません'}), 400
+
+        # セッションID検証
+        client_session_id = data.get('session_id')
+        if client_session_id != _session_id:
+            return jsonify({
+                'error': 'セッションが無効です。ページを再読み込みしてください。',
+                'error_code': 'SESSION_MISMATCH'
+            }), 409
 
         segments_list = data.get('segments', [])
 
@@ -368,6 +380,14 @@ def regenerate_audio():
 
         if not data:
             return jsonify({'error': 'データがありません'}), 400
+
+        # セッションID検証
+        client_session_id = data.get('session_id')
+        if client_session_id != _session_id:
+            return jsonify({
+                'error': 'セッションが無効です。ページを再読み込みしてください。',
+                'error_code': 'SESSION_MISMATCH'
+            }), 409
 
         source_file = data.get('source_file_resolved')
         segments_list = data.get('segments', [])
