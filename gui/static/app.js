@@ -569,6 +569,32 @@ function createRegions() {
             region.element.classList.add('segment-region');
             region.element.style.height = `${layerHeight}%`;
             region.element.style.top = `${top}%`;
+
+            // ハンドルのスタイルを設定（inline styleを上書き）
+            const leftHandle = region.element.querySelector('[part~="region-handle-left"]');
+            const rightHandle = region.element.querySelector('[part~="region-handle-right"]');
+
+            if (leftHandle) {
+                // 左ハンドル: 緑色、セグメントの外側（左側）に配置
+                leftHandle.style.width = '3px';
+                leftHandle.style.background = '#27ae60';
+                leftHandle.style.border = 'none';
+                leftHandle.style.borderRadius = '2px 0 0 2px';
+                leftHandle.style.left = '-3px';
+                leftHandle.style.opacity = '0.9';
+                leftHandle.style.display = 'none';  // 選択時のみ表示
+            }
+
+            if (rightHandle) {
+                // 右ハンドル: 赤色、セグメントの外側（右側）に配置
+                rightHandle.style.width = '3px';
+                rightHandle.style.background = '#e74c3c';
+                rightHandle.style.border = 'none';
+                rightHandle.style.borderRadius = '0 2px 2px 0';
+                rightHandle.style.right = '-3px';
+                rightHandle.style.opacity = '0.9';
+                rightHandle.style.display = 'none';  // 選択時のみ表示
+            }
         }
     });
 }
@@ -579,16 +605,36 @@ function updateRegionColor(index) {
 
     const segment = currentData.segments[index];
     let color;
+    let zIndex;
 
     if (selectedSegmentIndex === index) {
         color = 'rgba(230, 126, 34, 0.4)';
+        zIndex = '100';  // 選択中は最前面に
     } else if (segment.edited) {
         color = 'rgba(39, 174, 96, 0.3)';
+        zIndex = '1';
     } else {
         color = 'rgba(52, 152, 219, 0.3)';
+        zIndex = '1';
     }
 
     region.setOptions({ color });
+
+    // 選択中のセグメントを最前面に表示し、ハンドルを表示
+    if (region.element) {
+        region.element.style.zIndex = zIndex;
+
+        const leftHandle = region.element.querySelector('[part~="region-handle-left"]');
+        const rightHandle = region.element.querySelector('[part~="region-handle-right"]');
+        const isSelected = selectedSegmentIndex === index;
+
+        if (leftHandle) {
+            leftHandle.style.display = isSelected ? 'block' : 'none';
+        }
+        if (rightHandle) {
+            rightHandle.style.display = isSelected ? 'block' : 'none';
+        }
+    }
 }
 
 // ===========================================
