@@ -15,6 +15,23 @@ let isLoopEnabled = false;
 let nextInternalId = 1;  // 内部ID生成用カウンター
 
 // ===========================================
+// セッション管理
+// ===========================================
+
+function handleSessionMismatch() {
+    const reload = confirm(
+        'セッションが無効です。\n' +
+        'サーバーが再起動されたか、別のファイルが読み込まれています。\n\n' +
+        'ページを再読み込みしますか？\n' +
+        '（未保存の変更は失われます）'
+    );
+    if (reload) {
+        location.reload();
+    }
+    setStatus('セッション無効');
+}
+
+// ===========================================
 // 初期化
 // ===========================================
 
@@ -240,6 +257,10 @@ async function saveJson() {
         const result = await response.json();
 
         if (!response.ok) {
+            if (result.error_code === 'SESSION_MISMATCH') {
+                handleSessionMismatch();
+                return;
+            }
             throw new Error(result.error || '保存に失敗しました');
         }
 
@@ -288,6 +309,10 @@ async function regenerateAudio(forceExport = false) {
         const result = await response.json();
 
         if (!response.ok) {
+            if (result.error_code === 'SESSION_MISMATCH') {
+                handleSessionMismatch();
+                return;
+            }
             throw new Error(result.error || '書き出しに失敗しました');
         }
 
