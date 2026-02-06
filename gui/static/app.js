@@ -444,13 +444,23 @@ function initWavesurfer() {
             });
         }
 
-        // ホイールでズーム
+        // ホイール操作: Ctrl/Shiftでズーム、通常スクロールで横移動
         const waveformEditor = document.getElementById('waveform-editor');
         waveformEditor.addEventListener('wheel', (e) => {
-            if (e.ctrlKey) {
+            if (e.ctrlKey || e.shiftKey) {
+                // Ctrl+ホイール または Shift+ホイール: ズーム
                 e.preventDefault();
                 const delta = e.deltaY > 0 ? -10 : 10;
                 adjustZoom(delta);
+            } else {
+                // 通常ホイール: 横スクロール
+                e.preventDefault();
+                // wavesurferのラッパー要素の親（スクロールコンテナ）を取得
+                const wrapper = wavesurfer.getWrapper();
+                const scrollContainer = wrapper.parentElement;
+                if (scrollContainer) {
+                    scrollContainer.scrollLeft += e.deltaY;
+                }
             }
         }, { passive: false });
     });
