@@ -200,28 +200,23 @@ def merge_segments(
 
     Args:
         transcript_segments: Segments from transcript.json (exported segments)
-        edit_segments: Segments from edit_segments.json (pending changes)
+        edit_segments: Segments from edit_segments.json (all segments)
 
     Returns:
         Merged segments dictionary
     """
-    result = {}
+    # edit_segmentsにセグメントがある場合、edit_segmentsを正として使用
+    # （transcript.jsonにあってedit_segmentsにないセグメントは削除されたとみなす）
+    if edit_segments:
+        result = {}
+        for seg_id, seg in edit_segments.items():
+            result[seg_id] = seg.copy()
+        return result
 
-    # 1. Copy transcript.segments as base
+    # edit_segmentsが空の場合、transcript_segmentsをそのまま使用
+    result = {}
     for seg_id, seg in transcript_segments.items():
         result[seg_id] = seg.copy()
-
-    # 2. Apply edit_segments
-    for seg_id, changes in edit_segments.items():
-        if changes.get("deleted"):
-            # Delete: remove from result
-            result.pop(seg_id, None)
-        elif seg_id in result:
-            # Modify: update existing segment
-            result[seg_id].update(changes)
-        else:
-            # Add: new segment
-            result[seg_id] = changes.copy()
 
     return result
 

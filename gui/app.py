@@ -106,8 +106,8 @@ def segments_list_to_dict(segments_list: list, transcript_segments: dict) -> tup
                 'text': seg['text'],
             }
         elif seg_id not in current_segments and seg_id in transcript_segments:
-            # 削除
-            edit_segments[seg_id] = {'deleted': True}
+            # 削除（edit_segmentsには含めない）
+            pass
         elif seg_id in current_segments and seg_id in transcript_segments:
             # 変更チェック
             curr = current_segments[seg_id]
@@ -268,7 +268,7 @@ def get_data():
 
 @app.route('/api/save', methods=['POST'])
 def save_json():
-    """edit_segments.jsonを保存する（変更差分のみ）"""
+    """edit_segments.jsonを保存する（全セグメント情報）"""
     try:
         data = request.json
 
@@ -304,12 +304,21 @@ def save_json():
 
         # 配列形式のセグメントをオブジェクト形式に変換
         segments_list = data.get('segments', [])
-        _, edit_segments = segments_list_to_dict(segments_list, transcript_segments)
+        current_segments, edit_segments = segments_list_to_dict(segments_list, transcript_segments)
 
-        # edit_segments.jsonを保存
+        # 全セグメント情報を作成（削除されたセグメントは含まない）
+        full_segments = {}
+        for seg_id, seg in current_segments.items():
+            full_segments[seg_id] = {
+                'start': seg['start'],
+                'end': seg['end'],
+                'text': seg['text'],
+            }
+
+        # edit_segments.jsonを保存（全セグメント情報）
         save_data = {
             'version': 2,
-            'segments': edit_segments
+            'segments': full_segments
         }
 
         with open(edit_segments_path, 'w', encoding='utf-8') as f:
@@ -319,7 +328,7 @@ def save_json():
             'success': True,
             'message': f'保存しました: edit_segments.json',
             'unexported_path': str(edit_segments_path),
-            'changes_count': len(edit_segments)
+            'segments_count': len(full_segments)
         })
 
     except Exception as e:
@@ -432,93 +441,21 @@ def regenerate_audio():
             margin_after=margin_after
         )
 
-        # 差分計算
-        deleted_files = []
-        renamed_files = []
-        exported_files = []
-        skipped_count = 0
-
-        # 1. 削除処理
-        for seg_id, changes in edit_segments.items():
-            if changes.get('deleted') and seg_id in transcript_segments:
-                prev_seg = transcript_segments[seg_id]
-                if prev_seg.get('index') is not None:
-                    filename = splitter.generate_filename(
-                        prev_seg,
-                        index_digits=index_digits,
-                        index_sub_digits=index_sub_digits
-                    )
-                    if splitter.delete_file(filename):
-                        deleted_files.append(filename)
-
-        # 2. セグメントにindexを割り当て
-        segments_with_index = splitter.assign_indices(
-            current_segments,
-            existing_segments=transcript_segments if not force_export else None,
-            index_sub_digits=index_sub_digits
+        # 差分書き出し（Core層）
+        result = splitter.export_diff(
+            merged_segments=current_segments,
+            previous_segments=transcript_segments,
+            edit_segments=edit_segments,
+            index_digits=index_digits,
+            index_sub_digits=index_sub_digits,
+            force=force_export
         )
 
-        # 3. 各セグメントの処理
-        result_segments = {}
-        for seg_id, seg in segments_with_index.items():
-            new_filename = splitter.generate_filename(
-                seg,
-                index_digits=index_digits,
-                index_sub_digits=index_sub_digits
-            )
-
-            prev_seg = transcript_segments.get(seg_id) if not force_export else None
-            changes = edit_segments.get(seg_id, {})
-
-            if prev_seg and not force_export:
-                time_changed = (
-                    'start' in changes or 'end' in changes or
-                    abs(seg['start'] - prev_seg['start']) > 0.001 or
-                    abs(seg['end'] - prev_seg['end']) > 0.001
-                )
-
-                old_filename = splitter.generate_filename(
-                    prev_seg,
-                    index_digits=index_digits,
-                    index_sub_digits=index_sub_digits
-                )
-
-                if time_changed:
-                    if old_filename != new_filename:
-                        splitter.delete_file(old_filename)
-                    filename = splitter.export_segment(
-                        seg,
-                        index_digits=index_digits,
-                        index_sub_digits=index_sub_digits
-                    )
-                    exported_files.append(filename)
-                elif 'text' in changes or old_filename != new_filename:
-                    if splitter.rename_file(old_filename, new_filename):
-                        renamed_files.append({'old': old_filename, 'new': new_filename})
-                    elif not Path(output_dir / old_filename).exists():
-                        filename = splitter.export_segment(
-                            seg,
-                            index_digits=index_digits,
-                            index_sub_digits=index_sub_digits
-                        )
-                        exported_files.append(filename)
-                else:
-                    skipped_count += 1
-            else:
-                filename = splitter.export_segment(
-                    seg,
-                    index_digits=index_digits,
-                    index_sub_digits=index_sub_digits
-                )
-                exported_files.append(filename)
-
-            result_segments[seg_id] = {
-                'start': seg['start'],
-                'end': seg['end'],
-                'text': seg['text'],
-                'index': seg['index'],
-                'index_sub': seg.get('index_sub'),
-            }
+        exported_files = result['exported']
+        renamed_files = result['renamed']
+        deleted_files = result['deleted']
+        skipped_count = result['skipped']
+        result_segments = result['segments']
 
         # transcript.jsonを更新
         output_format['index_digits'] = index_digits
@@ -528,9 +465,6 @@ def regenerate_audio():
             segments=result_segments,
             output_format=output_format
         )
-
-        # edit_segments.jsonを削除
-        splitter.delete_edit_segments()
 
         # _initial_dataを更新（次回の差分計算のため）
         if _initial_data:

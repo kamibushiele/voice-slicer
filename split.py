@@ -58,141 +58,6 @@ def load_and_merge_segments(output_dir: Path) -> tuple[dict, dict, dict]:
     return merged, transcript_data, edit_segments_data
 
 
-def export_diff_v2(
-    splitter: AudioSplitter,
-    merged_segments: dict,
-    previous_segments: dict,
-    edit_segments: dict,
-    index_digits: int,
-    index_sub_digits: int,
-    force: bool = False
-) -> dict:
-    """
-    差分ベースで書き出しを行う（新スキーマ対応）。
-
-    Args:
-        splitter: AudioSplitterインスタンス
-        merged_segments: マージ済みセグメント（ID -> segment）
-        previous_segments: 前回書き出し済みセグメント（transcript.json）
-        edit_segments: 編集差分セグメント（edit_segments.json）
-        index_digits: indexの桁数
-        index_sub_digits: index_subの桁数
-        force: 強制書き出しフラグ
-
-    Returns:
-        結果辞書 (exported, renamed, deleted, skipped, segments)
-    """
-    deleted_files = []
-    renamed_files = []
-    exported_files = []
-    skipped_count = 0
-
-    # 1. 削除処理: edit_segmentsで"deleted: true"のセグメント
-    for seg_id, changes in edit_segments.items():
-        if changes.get("deleted"):
-            if seg_id in previous_segments:
-                prev_seg = previous_segments[seg_id]
-                # ファイル名を再計算
-                if prev_seg.get("index") is not None:
-                    filename = splitter.generate_filename(
-                        prev_seg,
-                        index_digits=index_digits,
-                        index_sub_digits=index_sub_digits
-                    )
-                    if splitter.delete_file(filename):
-                        deleted_files.append(filename)
-
-    # 2. マージ済みセグメントにindexを割り当て
-    segments_with_index = splitter.assign_indices(
-        merged_segments,
-        existing_segments=previous_segments if not force else None,
-        index_sub_digits=index_sub_digits
-    )
-
-    # 3. 各セグメントの処理
-    result_segments = {}
-    for seg_id, seg in segments_with_index.items():
-        new_filename = splitter.generate_filename(
-            seg,
-            index_digits=index_digits,
-            index_sub_digits=index_sub_digits
-        )
-
-        # 前回のセグメントを取得
-        prev_seg = previous_segments.get(seg_id) if not force else None
-
-        # 変更内容を取得
-        changes = edit_segments.get(seg_id, {})
-
-        if prev_seg and not force:
-            # 既存セグメントの処理
-
-            # 時間変更があるか確認
-            time_changed = (
-                "start" in changes or "end" in changes or
-                abs(seg["start"] - prev_seg["start"]) > 0.001 or
-                abs(seg["end"] - prev_seg["end"]) > 0.001
-            )
-
-            # 古いファイル名を計算
-            old_filename = splitter.generate_filename(
-                prev_seg,
-                index_digits=index_digits,
-                index_sub_digits=index_sub_digits
-            )
-
-            if time_changed:
-                # 時間変更 → 古いファイル削除 + 再書き出し
-                if old_filename != new_filename:
-                    splitter.delete_file(old_filename)
-                filename = splitter.export_segment(
-                    seg,
-                    index_digits=index_digits,
-                    index_sub_digits=index_sub_digits
-                )
-                exported_files.append(filename)
-            elif "text" in changes or old_filename != new_filename:
-                # テキストのみ変更 → リネーム
-                if splitter.rename_file(old_filename, new_filename):
-                    renamed_files.append({"old": old_filename, "new": new_filename})
-                elif not Path(splitter.output_dir / old_filename).exists():
-                    # 古いファイルがない場合は新規書き出し
-                    filename = splitter.export_segment(
-                        seg,
-                        index_digits=index_digits,
-                        index_sub_digits=index_sub_digits
-                    )
-                    exported_files.append(filename)
-            else:
-                # 変更なし → スキップ
-                skipped_count += 1
-        else:
-            # 新規セグメントまたは強制書き出し → 書き出し
-            filename = splitter.export_segment(
-                seg,
-                index_digits=index_digits,
-                index_sub_digits=index_sub_digits
-            )
-            exported_files.append(filename)
-
-        # 結果セグメントを保存
-        result_segments[seg_id] = {
-            "start": seg["start"],
-            "end": seg["end"],
-            "text": seg["text"],
-            "index": seg["index"],
-            "index_sub": seg.get("index_sub"),
-        }
-
-    return {
-        "exported": exported_files,
-        "renamed": renamed_files,
-        "deleted": deleted_files,
-        "skipped": skipped_count,
-        "segments": result_segments
-    }
-
-
 def main():
     """Main splitting pipeline."""
     print("=" * 60)
@@ -259,8 +124,7 @@ def main():
             max_filename_length=args.max_filename_length,
         )
 
-        result = export_diff_v2(
-            splitter=splitter,
+        result = splitter.export_diff(
             merged_segments=merged_segments,
             previous_segments=transcript_data.get("segments", {}),
             edit_segments=edit_segments_data.get("segments", {}),
@@ -283,9 +147,7 @@ def main():
             output_format=output_format
         )
 
-        # Remove edit_segments.json
-        splitter.delete_edit_segments()
-        print("Removed: edit_segments.json")
+
 
         # Summary
         print("\n" + "=" * 60)

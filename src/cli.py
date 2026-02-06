@@ -233,3 +233,43 @@ def parse_edit_args():
         parser.error(f"transcript.json not found in: {args.output_dir}")
 
     return args
+
+
+def parse_export_edit_args():
+    """
+    Parse arguments for export_edit.py.
+
+    Returns:
+        Parsed arguments namespace with: output_dir
+    """
+    input_from_argv = _extract_positional_arg()
+
+    parser = argparse.ArgumentParser(
+        description="Generate edit_segments.json with all segment data for manual editing."
+    )
+
+    parser.add_argument(
+        "output_dir",
+        type=str,
+        help="Output directory containing transcript.json"
+    )
+
+    args = parser.parse_args()
+
+    # Use output_dir extracted from sys.argv if available
+    if input_from_argv:
+        args.output_dir = input_from_argv
+    else:
+        args.output_dir = _clean_path(args.output_dir)
+
+    # Validate output directory exists
+    output_path = Path(args.output_dir)
+    if not output_path.exists():
+        parser.error(f"Output directory not found: {args.output_dir}")
+
+    # Validate transcript.json exists
+    transcript_path = output_path / "transcript.json"
+    if not transcript_path.exists():
+        parser.error(f"transcript.json not found in: {args.output_dir}")
+
+    return args

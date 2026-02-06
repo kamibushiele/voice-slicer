@@ -210,6 +210,184 @@ class AudioSplitter:
             return True
         return False
 
+    def generate_full_edit_segments(
+        self,
+        segments: Dict[str, Dict[str, Any]],
+    ) -> Path:
+        """
+        Generate edit_segments.json with all segment data for manual editing.
+
+        If edit_segments.json already exists, merges existing edits on top of
+        the transcript segments (transcript as base, edit_segments as overlay).
+
+        Args:
+            segments: Dictionary of all segments from transcript.json (ID as key)
+
+        Returns:
+            Path to generated edit_segments.json
+        """
+        edit_path = self.output_dir / "edit_segments.json"
+
+        # Start with transcript segments as base (only essential fields)
+        full_segments = {}
+        for seg_id, seg in segments.items():
+            full_segments[seg_id] = {
+                "start": seg["start"],
+                "end": seg["end"],
+                "text": seg["text"],
+            }
+
+        # If edit_segments.json exists, merge existing edits on top
+        if edit_path.exists():
+            with open(edit_path, 'r', encoding='utf-8') as f:
+                existing_data = json.load(f)
+            existing_segments = existing_data.get("segments", {})
+
+            for seg_id, changes in existing_segments.items():
+                if seg_id in full_segments:
+                    # Overlay changes on existing segment
+                    full_segments[seg_id].update(changes)
+                else:
+                    # New segment from edit_segments
+                    full_segments[seg_id] = changes.copy()
+
+        output_data = {
+            "version": 2,
+            "segments": full_segments,
+        }
+
+        with open(edit_path, 'w', encoding='utf-8') as f:
+            json.dump(output_data, f, ensure_ascii=False, indent=2)
+
+        return edit_path
+
+    def export_diff(
+        self,
+        merged_segments: Dict[str, Dict[str, Any]],
+        previous_segments: Dict[str, Dict[str, Any]],
+        edit_segments: Dict[str, Dict[str, Any]],
+        index_digits: int,
+        index_sub_digits: int,
+        force: bool = False
+    ) -> Dict[str, Any]:
+        """
+        差分ベースで書き出しを行う。
+
+        Args:
+            merged_segments: マージ済みセグメント（ID -> segment）
+            previous_segments: 前回書き出し済みセグメント（transcript.json）
+            edit_segments: 編集差分セグメント（edit_segments.json）
+            index_digits: indexの桁数
+            index_sub_digits: index_subの桁数
+            force: 強制書き出しフラグ
+
+        Returns:
+            結果辞書 (exported, renamed, deleted, skipped, segments)
+        """
+        deleted_files = []
+        renamed_files = []
+        exported_files = []
+        skipped_count = 0
+
+        # 1. 削除処理: previous_segmentsにあってmerged_segmentsにないセグメント
+        for seg_id, prev_seg in previous_segments.items():
+            if seg_id not in merged_segments:
+                # ファイル名を再計算
+                if prev_seg.get("index") is not None:
+                    filename = self.generate_filename(
+                        prev_seg,
+                        index_digits=index_digits,
+                        index_sub_digits=index_sub_digits
+                    )
+                    if self.delete_file(filename):
+                        deleted_files.append(filename)
+
+        # 2. マージ済みセグメントにindexを割り当て
+        segments_with_index = self.assign_indices(
+            merged_segments,
+            existing_segments=previous_segments if not force else None,
+            index_sub_digits=index_sub_digits
+        )
+
+        # 3. 各セグメントの処理
+        result_segments = {}
+        for seg_id, seg in segments_with_index.items():
+            new_filename = self.generate_filename(
+                seg,
+                index_digits=index_digits,
+                index_sub_digits=index_sub_digits
+            )
+
+            # 前回のセグメントを取得
+            prev_seg = previous_segments.get(seg_id) if not force else None
+
+            if prev_seg and not force:
+                # 既存セグメントの処理
+
+                # 時間変更があるか確認（値の比較）
+                time_changed = (
+                    abs(seg["start"] - prev_seg["start"]) > 0.001 or
+                    abs(seg["end"] - prev_seg["end"]) > 0.001
+                )
+
+                # 古いファイル名を計算
+                old_filename = self.generate_filename(
+                    prev_seg,
+                    index_digits=index_digits,
+                    index_sub_digits=index_sub_digits
+                )
+
+                if time_changed:
+                    # 時間変更 → 古いファイル削除 + 再書き出し
+                    if old_filename != new_filename:
+                        self.delete_file(old_filename)
+                    filename = self.export_segment(
+                        seg,
+                        index_digits=index_digits,
+                        index_sub_digits=index_sub_digits
+                    )
+                    exported_files.append(filename)
+                elif seg["text"] != prev_seg["text"] or old_filename != new_filename:
+                    # テキストのみ変更 → リネーム
+                    if self.rename_file(old_filename, new_filename):
+                        renamed_files.append({"old": old_filename, "new": new_filename})
+                    elif not (self.output_dir / old_filename).exists():
+                        # 古いファイルがない場合は新規書き出し
+                        filename = self.export_segment(
+                            seg,
+                            index_digits=index_digits,
+                            index_sub_digits=index_sub_digits
+                        )
+                        exported_files.append(filename)
+                else:
+                    # 変更なし → スキップ
+                    skipped_count += 1
+            else:
+                # 新規セグメントまたは強制書き出し → 書き出し
+                filename = self.export_segment(
+                    seg,
+                    index_digits=index_digits,
+                    index_sub_digits=index_sub_digits
+                )
+                exported_files.append(filename)
+
+            # 結果セグメントを保存
+            result_segments[seg_id] = {
+                "start": seg["start"],
+                "end": seg["end"],
+                "text": seg["text"],
+                "index": seg["index"],
+                "index_sub": seg.get("index_sub"),
+            }
+
+        return {
+            "exported": exported_files,
+            "renamed": renamed_files,
+            "deleted": deleted_files,
+            "skipped": skipped_count,
+            "segments": result_segments
+        }
+
     def export_segment(
         self,
         segment: Dict[str, Any],
