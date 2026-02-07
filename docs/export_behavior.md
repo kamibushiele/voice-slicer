@@ -41,40 +41,19 @@ input_generated/
 ```
 input_generated/
 ├── transcript.json      # 前回書き出し時のセグメント情報
-├── edit_segments.json   # 変更差分のみ
+├── edit_segments.json   # 全セグメント情報（編集済み）
 ├── 001_こんにちは世界.mp3
 ├── 002_今日はいい天気ですね.mp3
 └── ...
 ```
 
-## transcript.json と edit_segments.json
-
-| ファイル | 役割 |
-|---------|------|
-| `transcript.json` | 元ファイル情報、書き出し設定、書き出し済みセグメント |
-| `edit_segments.json` | 未書き出し/編集中の全セグメント情報 |
-
-- 文字起こし時: 両方を生成（`transcript.json`はセグメント空、`edit_segments.json`に全セグメント）
-- 書き出し時: `transcript.json`に`edit_segments.json`のデータを反映
-- 起動時: 両方を読み込んでマージ
-- 編集保存時: 現在の全セグメント情報を`edit_segments.json`に保存
-
-### edit_segments.json のセグメント形式
-
-| 状態 | 記載内容 |
-|-----|---------|
-| 通常 | 全フィールド（`start`, `end`, `text`） |
-| 削除 | セグメントを含めない |
-
 ## マージ処理
 
 読み込み時、`transcript.json`と`edit_segments.json`をマージする。
 
-各ファイルにある情報と処理の違い
-
 |      項目       | `transcript.json` | `edit_segments.json` |  `edit_segments.json`への反映  |
 | --------------- | ----------------- | -------------------- | ------------------------------ |
-| セグメント自体  | あり              | なし                 | 変更なし(次の書き出しで削除)   |
+| セグメント自体  | あり              | なし                 | 削除として扱う               |
 | セグメント自体  | なし              | あり                 | 変更なし(次の書き出しで追加)   |
 | start,stop,text | あり              | なし                 | transcript.jsonの内容を反映    |
 | start,stop,text | 内容が違う        | 内容が違う           | edit_segments.jsonの内容を優先 |
@@ -98,6 +77,7 @@ input_generated/
 
 - 書き出し済みセグメントの`index`/`index_sub`は**不変**
 - 新規セグメントのみ書き出し時にインデックスを計算
+- インデックス決定ルールの詳細は [index_specification.md](index_specification.md) を参照
 
 ## 全件書き出し
 
@@ -144,41 +124,6 @@ uv run export_edit.py <output_dir>
 {index}-{index_sub}_{text}.{ext}
 ```
 
-## セグメントID
+## データフォーマット
 
-### 採番ルール
-
-- **連番（最大+1）方式**
-- 新規追加時: 既存IDの最大値 + 1
-- 欠番は許容（削除後に詰めない）
-
-### 例
-
-```json
-// 初期状態
-{ "1": {...}, "2": {...}, "3": {...} }
-
-// ID:2を削除
-{ "1": {...}, "3": {...} }
-
-// 新規追加（最大3 + 1 = 4）
-{ "1": {...}, "3": {...}, "4": {...} }
-```
-
-## 後方互換性
-
-### バージョン判定
-
-| version | フォーマット |
-|---------|-------------|
-| 未定義 | 旧フォーマット（配列ベース） |
-| 2 | 新フォーマット（オブジェクトベース） |
-
-### 自動マイグレーション
-
-旧フォーマット検出時に自動で新フォーマットへ変換する。
-
-| 旧ファイル | 変換先 |
-|-----------|--------|
-| `transcript.json` (旧) | `transcript.json` (新) |
-| `transcript_unexported.json` | `edit_segments.json` |
+各JSONファイルの構造・フィールド仕様は [data_format.md](data_format.md) を参照。

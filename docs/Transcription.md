@@ -28,11 +28,12 @@ uv run transcribe.py <音声ファイル> [オプション]
 
 ## 出力
 
-`{出力ディレクトリ}/transcript_unexported.json` を生成。
+`{出力ディレクトリ}/` に `transcript.json`（設定情報）と `edit_segments.json`（全セグメント）を生成。
 
 ```
 input_generated/
-└── transcript_unexported.json
+├── transcript.json      # 設定情報のみ
+└── edit_segments.json   # 全セグメント情報
 ```
 
 この時点では音声ファイルは生成されない。

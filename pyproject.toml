@@ -1,5 +1,5 @@
 [project]
-name = "sound-sozai"
+name = "voice-slicer"
 version = "0.1.0"
 description = "Audio file transcription and splitting tool using Whisper"
 readme = "README.md"
