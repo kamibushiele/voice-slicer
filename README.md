@@ -64,9 +64,9 @@ GUIの書き出しボタンからも実行できます。
 
 | ドキュメント | 内容 |
 |-------------|------|
-| [docs/transcription.md](docs/transcription.md) | 文字起こしCLIの詳細 |
+| [docs/transcribe.md](docs/transcribe.md) | 文字起こしCLIの詳細 |
 | [docs/split.md](docs/split.md) | 分割CLIの詳細 |
-| [docs/gui.md](docs/gui.md) | GUI操作ガイド |
+| [docs/edit.md](docs/edit.md) | GUI操作ガイド |
 | [docs/export_behavior.md](docs/export_behavior.md) | 書き出し処理の仕様 |
 | [docs/data_format.md](docs/data_format.md) | JSONデータフォーマット仕様 |
 | [docs/index_specification.md](docs/index_specification.md) | セグメントindex仕様 |

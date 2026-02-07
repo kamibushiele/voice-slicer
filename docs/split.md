@@ -15,8 +15,6 @@ uv run split.py <ディレクトリ> [オプション]
 | `--max-filename-length` | ファイル名最大長 | 制限なし |
 | `--force` | 全セグメントを強制書き出し | off |
 
-マージン設定は `transcript.json` の `output_format.margin` で指定する。詳細は [data_format.md](data_format.md) を参照。
-
 ## 書き出し挙動
 
 差分ベースで書き出しを行う。詳細は [export_behavior.md](export_behavior.md) を参照。
