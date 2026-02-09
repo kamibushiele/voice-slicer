@@ -129,6 +129,9 @@ def main():
         print("\nNext step:")
         print(f"  uv run edit.py {output_dir}")
 
+        # Machine-readable output for pipe processing
+        print(f"OUTPUT_DIR={Path(output_dir).absolute()}")
+
         return 0
 
     except KeyboardInterrupt:

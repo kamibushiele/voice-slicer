@@ -65,8 +65,8 @@ jobs:
 
           # Copy project files (exclude dev/git files)
           cp -r src/ gui/ docs/ "${PACKAGE_NAME}/"
-          cp transcribe.py split.py edit.py export_edit.py "${PACKAGE_NAME}/"
-          cp run.bat "${PACKAGE_NAME}/"
+          cp transcribe.py split.py edit.py export_edit.py voice_slicer.py "${PACKAGE_NAME}/"
+          cp voice_slicer.bat "${PACKAGE_NAME}/"
           cp pyproject.toml uv.lock .python-version "${PACKAGE_NAME}/"
           cp README.md LICENSE "${PACKAGE_NAME}/"
 
