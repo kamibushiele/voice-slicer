@@ -78,13 +78,6 @@ jobs:
 
           echo "PACKAGE_NAME=${PACKAGE_NAME}" >> $GITHUB_ENV
 
-      - name: Copy to act-output/ (act local)
-        if: env.ACT == 'true'
-        run: |
-          mkdir -p act-output
-          cp "${PACKAGE_NAME}.zip" act-output/
-          echo "Output: act-output/${PACKAGE_NAME}.zip"
-
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
