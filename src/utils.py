@@ -378,3 +378,29 @@ def migrate_old_index(old_index: int) -> Tuple[int, int]:
         (index, index_sub) のタプル
     """
     return (old_index, 0)
+
+
+def find_available_port(start_port: int = 5000, max_attempts: int = 100) -> int:
+    """指定ポートから順に空きポートを探索して返す。
+
+    Args:
+        start_port: 探索開始ポート番号
+        max_attempts: 最大試行回数
+
+    Returns:
+        利用可能なポート番号
+
+    Raises:
+        RuntimeError: 空きポートが見つからない場合
+    """
+    import socket
+    for port in range(start_port, start_port + max_attempts):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(('127.0.0.1', port))
+                return port
+        except OSError:
+            continue
+    raise RuntimeError(
+        f"ポート {start_port}〜{start_port + max_attempts - 1} は全て使用中です"
+    )

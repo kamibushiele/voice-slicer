@@ -203,8 +203,8 @@ def parse_edit_args():
     parser.add_argument(
         "--port",
         type=int,
-        default=5000,
-        help="Port for the web server (default: 5000)"
+        default=None,
+        help="Port for the web server (default: auto-select from 5000)"
     )
 
     parser.add_argument(

@@ -21,6 +21,40 @@ let redoStack = [];
 const MAX_UNDO_HISTORY = 50;
 
 // ===========================================
+// テーマ（FOUC防止のためDOMContentLoaded前に実行）
+// ===========================================
+
+function getPreferredTheme() {
+    return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+}
+
+function applyTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    const icon = document.getElementById('theme-icon');
+    if (icon) {
+        icon.textContent = theme === 'light' ? '☀' : '🌙';
+    }
+    // wavesurferの波形色を更新
+    if (wavesurfer) {
+        const styles = getComputedStyle(document.documentElement);
+        wavesurfer.setOptions({
+            waveColor: styles.getPropertyValue('--waveform-color').trim(),
+            progressColor: styles.getPropertyValue('--waveform-progress').trim(),
+            cursorColor: styles.getPropertyValue('--waveform-cursor').trim(),
+        });
+    }
+}
+
+function toggleTheme() {
+    const current = document.documentElement.getAttribute('data-theme') || 'dark';
+    const next = current === 'dark' ? 'light' : 'dark';
+    applyTheme(next);
+}
+
+// 初期テーマを即座に適用
+applyTheme(getPreferredTheme());
+
+// ===========================================
 // セッション管理
 // ===========================================
 
@@ -48,6 +82,13 @@ document.addEventListener('DOMContentLoaded', () => {
     loadInitialData();
 });
 
+// 未保存の変更がある場合、ページ遷移時に警告
+window.addEventListener('beforeunload', (e) => {
+    if (isModified) {
+        e.preventDefault();
+    }
+});
+
 function initEventListeners() {
 
     // ツールバー
@@ -65,6 +106,11 @@ function initEventListeners() {
             wavesurfer.setPlaybackRate(parseFloat(e.target.value));
         }
     });
+    document.getElementById('volume-slider').addEventListener('input', (e) => {
+        if (wavesurfer) {
+            wavesurfer.setVolume(parseInt(e.target.value) / 100);
+        }
+    });
 
     // 編集パネル
     document.getElementById('btn-delete-segment').addEventListener('click', deleteSelectedSegment);
@@ -78,6 +124,7 @@ function initEventListeners() {
     document.getElementById('btn-save').addEventListener('click', saveJson);
     document.getElementById('btn-regenerate').addEventListener('click', () => regenerateAudio(false));
     document.getElementById('btn-force-regenerate').addEventListener('click', () => regenerateAudio(true));
+    document.getElementById('btn-theme').addEventListener('click', toggleTheme);
     document.getElementById('btn-help').addEventListener('click', () => {
         document.getElementById('help-modal').classList.remove('hidden');
     });
@@ -220,7 +267,6 @@ function cleanSegmentsForSave(segments) {
     return segments.map(seg => {
         const cleaned = { ...seg };
         delete cleaned._id;
-        delete cleaned.edited;
         delete cleaned.index_formatted;  // 表示専用フィールドを除外
         return cleaned;
     });
@@ -387,12 +433,18 @@ function initWavesurfer() {
         wavesurfer.destroy();
     }
 
+    // テーマに応じた波形色を取得
+    const styles = getComputedStyle(document.documentElement);
+    const waveColor = styles.getPropertyValue('--waveform-color').trim();
+    const progressColor = styles.getPropertyValue('--waveform-progress').trim();
+    const cursorColor = styles.getPropertyValue('--waveform-cursor').trim();
+
     // Wavesurferを初期化
     wavesurfer = WaveSurfer.create({
         container: '#waveform-container',
-        waveColor: '#4a90d9',
-        progressColor: '#1a5fa3',
-        cursorColor: '#ffffff',
+        waveColor: waveColor,
+        progressColor: progressColor,
+        cursorColor: cursorColor,
         cursorWidth: 2,
         height: 150,
         normalize: true,
@@ -497,7 +549,6 @@ function initWavesurfer() {
 
             segment.start = newStart;
             segment.end = newEnd;
-            segment.edited = true;
 
             markModified();
             renderSegmentList();
@@ -586,9 +637,7 @@ function createRegions() {
 
     // セグメントごとにリージョンを作成
     currentData.segments.forEach((segment, index) => {
-        const color = segment.edited ?
-            'rgba(39, 174, 96, 0.3)' :
-            'rgba(52, 152, 219, 0.3)';
+        const color = 'rgba(52, 152, 219, 0.3)';
 
         // 常に start <= end を保証（ハンドル位置の逆転を防止）
         const displayStart = Math.min(segment.start, segment.end);
@@ -667,9 +716,6 @@ function updateRegionColor(index) {
     if (selectedSegmentIndex === index) {
         color = 'rgba(230, 126, 34, 0.4)';
         zIndex = '100';  // 選択中は最前面に
-    } else if (segment.edited) {
-        color = 'rgba(39, 174, 96, 0.3)';
-        zIndex = '1';
     } else {
         color = 'rgba(52, 152, 219, 0.3)';
         zIndex = '1';
@@ -728,9 +774,6 @@ function renderSegmentList() {
         item.className = 'segment-item';
         if (selectedSegmentIndex === index) {
             item.classList.add('selected');
-        }
-        if (segment.edited) {
-            item.classList.add('edited');
         }
 
         // 表示番号はセグメントID、書き出し済みの場合はindexも表示
@@ -864,7 +907,6 @@ function applyEditChanges() {
     segment.start = newStart;
     segment.end = newEnd;
     segment.text = newText;
-    segment.edited = true;
 
     markModified();
     renderSegmentList();

@@ -15,6 +15,7 @@ project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
 from src.cli import parse_edit_args
+from src.utils import find_available_port
 
 
 def find_transcript_json(directory: Path) -> Path | None:
@@ -61,7 +62,17 @@ def main():
         print(f"Error: {error}")
         return 1
 
-    url = f'http://localhost:{args.port}'
+    # ポート決定
+    if args.port is not None:
+        port = args.port
+    else:
+        try:
+            port = find_available_port()
+        except RuntimeError as e:
+            print(f"Error: {e}")
+            return 1
+
+    url = f'http://localhost:{port}'
 
     print(f"\nDirectory: {dir_path}")
     print(f"JSON file: {json_path.name}")
@@ -73,7 +84,7 @@ def main():
         webbrowser.open(url)
 
     # Start Flask server
-    app.run(debug=False, port=args.port, host='127.0.0.1')
+    app.run(debug=False, port=port, host='127.0.0.1')
 
     return 0
 

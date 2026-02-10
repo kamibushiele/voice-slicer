@@ -505,9 +505,3 @@ def regenerate_audio():
             'error': f'書き出しエラー: {str(e)}',
             'traceback': traceback.format_exc()
         }), 500
-
-
-if __name__ == '__main__':
-    print("手動調整GUI を起動します...")
-    print("ブラウザで http://localhost:5000 を開いてください")
-    app.run(debug=True, port=5000)

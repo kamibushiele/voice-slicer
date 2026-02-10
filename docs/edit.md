@@ -9,11 +9,16 @@
 uv run edit.py input_generated/
 
 # オプション
-uv run edit.py input_generated/ --port 8080      # ポート変更
+uv run edit.py input_generated/ --port 8080      # ポート指定
 uv run edit.py input_generated/ --no-browser     # ブラウザを開かない
 ```
 
-ブラウザで http://localhost:5000 が自動で開きます。
+ブラウザで http://localhost:{ポート番号} が自動で開きます。
+
+## ポート選択
+
+- `--port`指定なし: ポート5000から順に空きポートを自動選択（5000〜5099）
+- `--port`指定あり: 指定ポートを使用（使用中の場合はエラー終了）
 
 ## 主な機能
 

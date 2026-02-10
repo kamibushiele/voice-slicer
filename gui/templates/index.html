@@ -28,6 +28,9 @@
                 <button id="btn-force-regenerate" class="btn btn-warning" disabled>
                     <span class="icon">⚡</span> 全件書き出し
                 </button>
+                <button id="btn-theme" class="btn btn-secondary" title="テーマ切り替え">
+                    <span class="icon" id="theme-icon">🌙</span>
+                </button>
                 <button id="btn-help" class="btn btn-secondary">
                     <span class="icon">?</span>
                 </button>
@@ -75,6 +78,9 @@
                                 <option value="2">2x</option>
                                 <option value="3">3x</option>
                             </select>
+                            <span class="volume-control" title="音量">
+                                🔊 <input type="range" id="volume-slider" min="0" max="100" value="100">
+                            </span>
                             <span id="time-display">00:00.000 / 00:00.000</span>
                         </div>
                         <div class="toolbar-group">
