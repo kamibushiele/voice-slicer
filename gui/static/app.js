@@ -21,6 +21,40 @@ let redoStack = [];
 const MAX_UNDO_HISTORY = 50;
 
 // ===========================================
+// テーマ（FOUC防止のためDOMContentLoaded前に実行）
+// ===========================================
+
+function getPreferredTheme() {
+    return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+}
+
+function applyTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    const icon = document.getElementById('theme-icon');
+    if (icon) {
+        icon.textContent = theme === 'light' ? '☀' : '🌙';
+    }
+    // wavesurferの波形色を更新
+    if (wavesurfer) {
+        const styles = getComputedStyle(document.documentElement);
+        wavesurfer.setOptions({
+            waveColor: styles.getPropertyValue('--waveform-color').trim(),
+            progressColor: styles.getPropertyValue('--waveform-progress').trim(),
+            cursorColor: styles.getPropertyValue('--waveform-cursor').trim(),
+        });
+    }
+}
+
+function toggleTheme() {
+    const current = document.documentElement.getAttribute('data-theme') || 'dark';
+    const next = current === 'dark' ? 'light' : 'dark';
+    applyTheme(next);
+}
+
+// 初期テーマを即座に適用
+applyTheme(getPreferredTheme());
+
+// ===========================================
 // セッション管理
 // ===========================================
 
@@ -90,6 +124,7 @@ function initEventListeners() {
     document.getElementById('btn-save').addEventListener('click', saveJson);
     document.getElementById('btn-regenerate').addEventListener('click', () => regenerateAudio(false));
     document.getElementById('btn-force-regenerate').addEventListener('click', () => regenerateAudio(true));
+    document.getElementById('btn-theme').addEventListener('click', toggleTheme);
     document.getElementById('btn-help').addEventListener('click', () => {
         document.getElementById('help-modal').classList.remove('hidden');
     });
@@ -398,12 +433,18 @@ function initWavesurfer() {
         wavesurfer.destroy();
     }
 
+    // テーマに応じた波形色を取得
+    const styles = getComputedStyle(document.documentElement);
+    const waveColor = styles.getPropertyValue('--waveform-color').trim();
+    const progressColor = styles.getPropertyValue('--waveform-progress').trim();
+    const cursorColor = styles.getPropertyValue('--waveform-cursor').trim();
+
     // Wavesurferを初期化
     wavesurfer = WaveSurfer.create({
         container: '#waveform-container',
-        waveColor: '#4a90d9',
-        progressColor: '#1a5fa3',
-        cursorColor: '#ffffff',
+        waveColor: waveColor,
+        progressColor: progressColor,
+        cursorColor: cursorColor,
         cursorWidth: 2,
         height: 150,
         normalize: true,

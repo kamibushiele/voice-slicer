@@ -26,6 +26,21 @@
     --header-height: 50px;
     --sidebar-width: 300px;
     --statusbar-height: 24px;
+    --waveform-color: #4a90d9;
+    --waveform-progress: #1a5fa3;
+    --waveform-cursor: #ffffff;
+}
+
+[data-theme="light"] {
+    --bg-color: #f5f5f5;
+    --bg-secondary: #ffffff;
+    --bg-tertiary: #e8e8e8;
+    --text-color: #333333;
+    --text-muted: #666666;
+    --border-color: #d0d0d0;
+    --waveform-color: #5a9fd4;
+    --waveform-progress: #2b7cb8;
+    --waveform-cursor: #333333;
 }
 
 body {
