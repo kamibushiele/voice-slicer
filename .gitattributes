@@ -1,0 +1,7 @@
+# Default: auto-detect and normalize to LF in repo, native on checkout
+* text=auto
+
+# Windows batch/PowerShell files must keep CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
